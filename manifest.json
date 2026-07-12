@@ -1,0 +1,10 @@
+{
+  "id": "obsidian-mailer-plugin",
+  "name": "Технический помощник TECHNONICOL",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Помощник для работы с техническими письмами TECHNONICOL",
+  "author": "Полищук Евгений",
+  "authorUrl": "",
+  "isDesktopOnly": true
+}
