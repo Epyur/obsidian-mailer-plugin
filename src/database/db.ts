@@ -405,6 +405,29 @@ export class LocalDatabase {
     }
   }
 
+  // ===== ЭКСПОРТ ПИСЕМ ПО НАПРАВЛЕНИЯМ =====
+
+  exportEmailsByDirection(directionIds: number[]): string {
+    if (!this.isReady()) return '{}';
+
+    const filteredEmails = (this.data.emails || []).filter((e: any) =>
+      directionIds.includes(e.direction_id || 0)
+    );
+
+    const relatedDirections = (this.data.directions || []).filter((d: any) =>
+      directionIds.includes(d.id)
+    );
+
+    const exportData = {
+      emails: filteredEmails,
+      directions: relatedDirections,
+      chat_history: [],
+      documents: []
+    };
+
+    return JSON.stringify(exportData, null, 2);
+  }
+
   // ===== ИЗОБРАЖЕНИЯ =====
 
   getImageDirectory(): string {

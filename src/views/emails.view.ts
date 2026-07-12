@@ -1192,6 +1192,156 @@ class ImportModal extends Modal {
   }
 }
 
+// ===== МОДАЛЬНОЕ ОКНО ЭКСПОРТА ПИСЕМ ПО НАПРАВЛЕНИЯМ =====
+class ExportModal extends Modal {
+  plugin: MailerPlugin;
+  onUpdate: () => void;
+
+  constructor(plugin: MailerPlugin, onUpdate: () => void) {
+    super(plugin.app);
+    this.plugin = plugin;
+    this.onUpdate = onUpdate;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    (contentEl as HTMLElement).style.cssText = 'max-width: 550px; margin: 0 auto; padding: 20px;';
+
+    contentEl.createEl('h2', { text: '📤 Экспорт писем в JSON' });
+    contentEl.createEl('p', { text: 'Выберите одно или несколько направлений для экспорта', cls: 'mailer-modal-desc' });
+
+    const directions = this.plugin.db.getDirections();
+    const checkboxes: HTMLInputElement[] = [];
+    const selectionInfo = contentEl.createEl('div');
+    (selectionInfo as HTMLElement).style.cssText = 'font-size: 12px; color: var(--text-muted); margin-bottom: 10px;';
+
+    if (directions.length === 0) {
+      contentEl.createEl('p', { text: '📭 Нет созданных направлений. Сначала создайте направления в разделе "Направления".' });
+      const closeBtn = contentEl.createEl('button', { cls: 'mailer-btn' });
+      closeBtn.textContent = '✕ Закрыть';
+      (closeBtn as HTMLButtonElement).style.cssText = 'padding: 10px 24px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer; font-size: 14px; margin-top: 16px;';
+      closeBtn.addEventListener('click', () => this.close());
+      return;
+    }
+
+    const listContainer = contentEl.createDiv({ cls: 'export-dir-list' });
+    (listContainer as HTMLElement).style.cssText = 'max-height: 300px; overflow-y: auto; margin-bottom: 14px; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 4px;';
+
+    // Select all / deselect all
+    const selectAllRow = listContainer.createEl('div', { cls: 'export-dir-row' });
+    (selectAllRow as HTMLElement).style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--background-modifier-border); cursor: pointer;';
+    const selectAllCheckbox = selectAllRow.createEl('input', { type: 'checkbox', attr: { id: 'export-select-all' } });
+    (selectAllCheckbox as HTMLInputElement).style.cssText = 'cursor: pointer;';
+    selectAllRow.createEl('label', { text: 'Выбрать все', attr: { for: 'export-select-all' } });
+    (selectAllRow.lastChild as HTMLElement).style.cssText = 'cursor: pointer; font-size: 13px; font-weight: bold;';
+
+    const updateSelectionInfo = () => {
+      const selected = checkboxes.filter(cb => cb.checked).length;
+      selectionInfo.textContent = `✅ Выбрано направлений: ${selected} из ${directions.length}`;
+    };
+
+    selectAllCheckbox.addEventListener('change', () => {
+      const checked = selectAllCheckbox.checked;
+      checkboxes.forEach(cb => cb.checked = checked);
+      updateSelectionInfo();
+    });
+
+    directions.forEach((dir: any) => {
+      const row = listContainer.createEl('div', { cls: 'export-dir-row' });
+      (row as HTMLElement).style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--background-modifier-border); cursor: pointer;';
+
+      const cb = row.createEl('input', { type: 'checkbox', attr: { id: `export-dir-${dir.id}` } });
+      (cb as HTMLInputElement).style.cssText = 'cursor: pointer;';
+      checkboxes.push(cb);
+
+      const emailsCount = this.plugin.db.getAllEmails().filter((e: any) => e.direction_id === dir.id).length;
+      row.createEl('label', { text: `📂 ${dir.name} (${emailsCount} писем)`, attr: { for: `export-dir-${dir.id}` } });
+      (row.lastChild as HTMLElement).style.cssText = 'cursor: pointer; font-size: 13px; flex: 1;';
+
+      cb.addEventListener('change', () => {
+        updateSelectionInfo();
+        selectAllCheckbox.checked = checkboxes.every(c => c.checked);
+      });
+
+      row.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).tagName !== 'INPUT') {
+          cb.checked = !cb.checked;
+          cb.dispatchEvent(new Event('change'));
+        }
+      });
+    });
+
+    updateSelectionInfo();
+
+    const btnGroup = contentEl.createEl('div', { cls: 'export-buttons' });
+    (btnGroup as HTMLElement).style.cssText = 'display: flex; gap: 10px; margin-top: 8px; justify-content: flex-end;';
+
+    const cancelBtn = btnGroup.createEl('button', { cls: 'mailer-btn' });
+    cancelBtn.textContent = '✕ Отмена';
+    (cancelBtn as HTMLButtonElement).style.cssText = 'padding: 10px 24px; border: none; border-radius: 4px; background: var(--background-secondary); color: var(--text-normal); cursor: pointer; font-size: 14px;';
+    cancelBtn.addEventListener('click', () => this.close());
+
+    const exportBtn = btnGroup.createEl('button', { cls: 'mailer-btn mailer-btn-success' });
+    exportBtn.textContent = '📤 Экспортировать';
+    (exportBtn as HTMLButtonElement).style.cssText = 'padding: 10px 24px; border: none; border-radius: 4px; background: var(--interactive-accent); color: white; cursor: pointer; font-size: 14px; font-weight: bold;';
+    exportBtn.addEventListener('click', async () => {
+      const selectedIds: number[] = [];
+      directions.forEach((dir: any, idx: number) => {
+        if (checkboxes[idx].checked) {
+          selectedIds.push(dir.id);
+        }
+      });
+
+      if (selectedIds.length === 0) {
+        new Notice('⚠️ Выберите хотя бы одно направление');
+        return;
+      }
+
+      this.close();
+      await this.executeExport(selectedIds);
+    });
+  }
+
+  private async executeExport(directionIds: number[]) {
+    try {
+      const jsonContent = this.plugin.db.exportEmailsByDirection(directionIds);
+      const data = JSON.parse(jsonContent);
+      const totalEmails = data.emails.length;
+      const totalDirs = data.directions.length;
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      const dirName = data.directions.length === 1
+        ? this.sanitizeFileName(data.directions[0].name)
+        : 'экспорт';
+      const fileName = `Экспорт_писем_${dirName}_${timestamp}.json`;
+
+      const adapter = this.app.vault.adapter;
+      const exportFolder = 'Технические письма/Экспорт';
+      if (!await adapter.exists(exportFolder)) {
+        await this.app.vault.createFolder(exportFolder);
+      }
+
+      const filePath = `${exportFolder}/${fileName}`;
+      await adapter.write(filePath, jsonContent);
+
+      new Notice(`✅ Экспорт завершён!\n📧 Экспортировано: ${totalEmails} писем\n📂 Направлений: ${totalDirs}\n💾 Файл: ${fileName}`);
+      this.onUpdate();
+    } catch (error) {
+      new Notice(`❌ Ошибка экспорта: ${(error as Error).message}`);
+    }
+  }
+
+  private sanitizeFileName(name: string): string {
+    return name.replace(/[\\/:*?"<>|/]/g, '_').replace(/_+/g, '_').trim().substring(0, 50);
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+}
+
 // ===== ОСНОВНОЙ ВИД =====
 export class EmailsView extends ItemView {
   plugin: MailerPlugin;
@@ -1298,6 +1448,11 @@ export class EmailsView extends ItemView {
     (importBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer;';
     importBtn.addEventListener('click', () => this.openImportModal());
 
+    const exportJsonBtn = toolbar.createEl('button', { cls: 'mailer-btn' });
+    exportJsonBtn.textContent = '📤 Экспорт JSON';
+    (exportJsonBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer;';
+    exportJsonBtn.addEventListener('click', () => this.openExportModal());
+
     const chatBtn = toolbar.createEl('button', { cls: 'mailer-btn mailer-btn-llm' });
     chatBtn.textContent = '💬 Чат с AI';
     (chatBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer;';
@@ -1351,6 +1506,16 @@ export class EmailsView extends ItemView {
 
   openImportModal() {
     const modal = new ImportModal(
+      this.plugin,
+      () => {
+        this.loadEmailsFromLocal();
+      }
+    );
+    modal.open();
+  }
+
+  openExportModal() {
+    const modal = new ExportModal(
       this.plugin,
       () => {
         this.loadEmailsFromLocal();
