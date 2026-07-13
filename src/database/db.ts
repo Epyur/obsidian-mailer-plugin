@@ -1,9 +1,46 @@
 // src/database/db.ts
-import { Notice, TFile, TFolder } from 'obsidian';
+import { Notice, App } from 'obsidian';
+
+export type SyncStatus = 'local' | 'synced' | 'conflict';
+
+export interface Email {
+  id: number;
+  number: string;
+  subject: string;
+  text: string;
+  author: string;
+  date: string;
+  direction_id: number;
+  images: string[];
+  mdFilePath: string;
+  mdFileHash: string;
+  lastSyncTime: string;
+  sync_status: SyncStatus;
+  created_at: string;
+}
+
+export interface Direction {
+  id: number;
+  name: string;
+  description: string;
+  created_at: string;
+}
+
+export interface DbData {
+  emails: Email[];
+  directions: Direction[];
+  chat_history: unknown[];
+  documents: unknown[];
+}
+
+export interface Stats {
+  emails: number;
+  directions: number;
+}
 
 export class LocalDatabase {
-  private app: any;
-  private data: any = {
+  private app: App;
+  private data: DbData = {
     emails: [],
     directions: [],
     chat_history: [],
@@ -12,7 +49,7 @@ export class LocalDatabase {
   private initialized: boolean = false;
   private dataPath: string = 'mailer_data.json';
 
-  constructor(app: any) {
+  constructor(app: App) {
     this.app = app;
   }
 
@@ -47,8 +84,8 @@ export class LocalDatabase {
         return;
       }
       
-    } catch (error) {
-      const err = error as Error;
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
       console.error('❌ Ошибка инициализации хранилища:', err.message);
       
       // 🔥 ПЫТАЕМСЯ ВОССТАНОВИТЬ ДАННЫЕ
@@ -71,8 +108,8 @@ export class LocalDatabase {
           console.log('✅ Основной файл восстановлен из бэкапа');
           return;
         }
-      } catch (recoveryError) {
-        console.error('❌ Не удалось восстановить данные:', recoveryError);
+      } catch (recoveryError: unknown) {
+        console.error('❌ Не удалось восстановить данные:', recoveryError instanceof Error ? recoveryError.message : String(recoveryError));
       }
       
       // 🔥 ПОСЛЕДНЯЯ ПОПЫТКА — СОЗДАЕМ НОВЫЙ ФАЙЛ
@@ -84,8 +121,8 @@ export class LocalDatabase {
         await adapter.write(this.dataPath, JSON.stringify(this.data, null, 2));
         this.initialized = true;
         console.log('✅ Создан новый файл данных');
-      } catch (finalError) {
-        console.error('❌ Критическая ошибка:', finalError);
+      } catch (finalError: unknown) {
+        console.error('❌ Критическая ошибка:', finalError instanceof Error ? finalError.message : String(finalError));
         new Notice('❌ Ошибка инициализации локального хранилища');
         throw error;
       }
@@ -109,8 +146,8 @@ export class LocalDatabase {
       await adapter.write(this.dataPath, JSON.stringify(this.data, null, 2));
       this.saveBackupIfNeeded();
       
-    } catch (error) {
-      console.error('❌ Ошибка сохранения данных:', error);
+    } catch (error: unknown) {
+      console.error('❌ Ошибка сохранения данных:', error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -123,7 +160,7 @@ export class LocalDatabase {
         const adapter = this.app.vault.adapter;
         await adapter.write('mailer_data_backup.json', JSON.stringify(this.data, null, 2));
         console.log('✅ Бэкап создан');
-      } catch (e) {
+      } catch (e: unknown) {
         console.warn('⚠️ Не удалось создать бэкап');
       }
     }
@@ -135,7 +172,7 @@ export class LocalDatabase {
 
   // ===== EMAILS =====
   
-  getAllEmails(): any[] {
+  getAllEmails(): Email[] {
     if (!this.isReady()) {
       console.warn('⚠️ База данных не инициализирована');
       return [];
@@ -143,13 +180,13 @@ export class LocalDatabase {
     return this.data.emails || [];
   }
 
-  getEmail(id: number): any | null {
+  getEmail(id: number): Email | null {
     if (!this.isReady()) return null;
     const emails = this.data.emails || [];
-    return emails.find((e: any) => e.id === id) || null;
+    return emails.find((e: Email) => e.id === id) || null;
   }
 
-  saveEmail(email: any): number {
+  saveEmail(email: Partial<Email>): number {
     if (!this.isReady()) {
       console.warn('⚠️ База данных не инициализирована');
       return -1;
@@ -162,24 +199,23 @@ export class LocalDatabase {
       
       let existingIndex = -1;
       if (email.id) {
-        existingIndex = this.data.emails.findIndex((e: any) => e.id === email.id);
+        existingIndex = this.data.emails.findIndex((e: Email) => e.id === email.id);
       }
       
-      // 🔥 ФОРМИРУЕМ НОВОЕ ПИСЬМО С ТЕКУЩИМИ ДАННЫМИ
-      const newEmail = {
-        id: email.id || Date.now() + Math.floor(Math.random() * 1000),
-        number: email.number || '',
-        subject: email.subject || 'Без темы',
-        text: email.text || '',
-        author: email.author || 'Иванов И.И.',
-        date: email.date || new Date().toISOString(),
-        direction_id: email.direction_id || 0,
-        images: email.images || [],
-        mdFilePath: email.mdFilePath || '',
-        mdFileHash: email.mdFileHash || '',
-        lastSyncTime: email.lastSyncTime || '',
-        sync_status: email.sync_status || 'local',
-        created_at: email.created_at || new Date().toISOString()
+      const newEmail: Email = {
+        id: email.id ?? Date.now() + Math.floor(Math.random() * 1000),
+        number: email.number ?? '',
+        subject: email.subject ?? 'Без темы',
+        text: email.text ?? '',
+        author: email.author ?? 'Иванов И.И.',
+        date: email.date ?? new Date().toISOString(),
+        direction_id: email.direction_id ?? 0,
+        images: email.images ?? [],
+        mdFilePath: email.mdFilePath ?? '',
+        mdFileHash: email.mdFileHash ?? '',
+        lastSyncTime: email.lastSyncTime ?? '',
+        sync_status: email.sync_status ?? 'local',
+        created_at: email.created_at ?? new Date().toISOString()
       };
       
       // Логируем для отладки
@@ -198,8 +234,8 @@ export class LocalDatabase {
       this.saveData();
       console.log('✅ Письмо сохранено, ID:', newEmail.id);
       return newEmail.id;
-    } catch (error) {
-      console.error('❌ Ошибка сохранения письма:', error);
+    } catch (error: unknown) {
+      console.error('❌ Ошибка сохранения письма:', error instanceof Error ? error.message : String(error));
       return -1;
     }
   }
@@ -209,21 +245,21 @@ export class LocalDatabase {
     
     try {
       const emails = this.data.emails || [];
-      this.data.emails = emails.filter((e: any) => e.id !== id);
+      this.data.emails = emails.filter((e: Email) => e.id !== id);
       this.saveData();
       return true;
-    } catch (error) {
-      console.error('❌ Ошибка удаления письма:', error);
+    } catch (error: unknown) {
+      console.error('❌ Ошибка удаления письма:', error instanceof Error ? error.message : String(error));
       return false;
     }
   }
 
-  searchEmails(query: string): any[] {
+  searchEmails(query: string): Email[] {
     if (!this.isReady()) return [];
     
     const q = query.toLowerCase();
     const emails = this.data.emails || [];
-    return emails.filter((email: any) => 
+    return emails.filter((email: Email) => 
       (email.subject || '').toLowerCase().includes(q) ||
       (email.text || '').toLowerCase().includes(q) ||
       (email.number || '').toLowerCase().includes(q)
@@ -232,10 +268,10 @@ export class LocalDatabase {
 
   // ===== СИНХРОНИЗАЦИЯ =====
   
-  getPendingSync(): any[] {
+  getPendingSync(): Email[] {
     if (!this.isReady()) return [];
     const emails = this.data.emails || [];
-    return emails.filter((e: any) => 
+    return emails.filter((e: Email) => 
       e.sync_status === 'local' || e.sync_status === 'conflict'
     );
   }
@@ -244,7 +280,7 @@ export class LocalDatabase {
     if (!this.isReady()) return;
     
     const emails = this.data.emails || [];
-    const email = emails.find((e: any) => e.id === emailId);
+    const email = emails.find((e: Email) => e.id === emailId);
     if (email) {
       email.sync_status = 'synced';
       this.saveData();
@@ -263,7 +299,7 @@ export class LocalDatabase {
     this.saveData();
   }
 
-  addCloudEmails(cloudEmails: any[]): number {
+  addCloudEmails(cloudEmails: Email[]): number {
     if (!this.isReady()) return 0;
     
     if (!this.data.emails) {
@@ -271,13 +307,13 @@ export class LocalDatabase {
     }
     
     let added = 0;
-    const existingIds = new Set(this.data.emails.map((e: any) => e.id));
+    const existingIds = new Set(this.data.emails.map((e: Email) => e.id));
     
     for (const cloudEmail of cloudEmails) {
       if (!existingIds.has(cloudEmail.id)) {
-        const newEmail = {
+        const newEmail: Email = {
           ...cloudEmail,
-          sync_status: 'synced'
+          sync_status: 'synced' as SyncStatus
         };
         this.data.emails.unshift(newEmail);
         added++;
@@ -293,13 +329,13 @@ export class LocalDatabase {
 
   // ===== НАПРАВЛЕНИЯ =====
   
-  getDirectionByName(name: string): any | null {
+  getDirectionByName(name: string): Direction | null {
     if (!this.isReady()) return null;
     const directions = this.data.directions || [];
-    return directions.find((d: any) => d.name === name) || null;
+    return directions.find((d: Direction) => d.name === name) || null;
   }
 
-  getDirections(): any[] {
+  getDirections(): Direction[] {
     if (!this.isReady()) {
       console.warn('⚠️ База данных не инициализирована');
       return [];
@@ -320,13 +356,13 @@ export class LocalDatabase {
       }
       
       // Проверяем, не существует ли уже такое направление
-      const exists = this.data.directions.some((d: any) => d.name === name);
+      const exists = this.data.directions.some((d: Direction) => d.name === name);
       if (exists) {
         console.warn('⚠️ Направление уже существует:', name);
         return -1;
       }
       
-      const newDir = {
+      const newDir: Direction = {
         id: Date.now() + Math.floor(Math.random() * 1000),
         name: name,
         description: description,
@@ -337,8 +373,8 @@ export class LocalDatabase {
       this.saveData();
       console.log('✅ Создано направление:', name, 'ID:', newDir.id);
       return newDir.id;
-    } catch (error) {
-      console.error('❌ Ошибка сохранения направления:', error);
+    } catch (error: unknown) {
+      console.error('❌ Ошибка сохранения направления:', error instanceof Error ? error.message : String(error));
       return -1;
     }
   }
@@ -352,7 +388,7 @@ export class LocalDatabase {
     
     try {
       const directions = this.data.directions || [];
-      const filtered = directions.filter((d: any) => d.id !== id);
+      const filtered = directions.filter((d: Direction) => d.id !== id);
       
       if (filtered.length === directions.length) {
         console.warn('⚠️ Направление не найдено:', id);
@@ -363,15 +399,15 @@ export class LocalDatabase {
       this.saveData();
       console.log('✅ Направление удалено, ID:', id);
       return true;
-    } catch (error) {
-      console.error('❌ Ошибка удаления направления:', error);
+    } catch (error: unknown) {
+      console.error('❌ Ошибка удаления направления:', error instanceof Error ? error.message : String(error));
       return false;
     }
   }
 
   // ===== СТАТИСТИКА =====
   
-  getStats(): any {
+  getStats(): Stats {
     if (!this.isReady()) {
       console.warn('⚠️ База данных не инициализирована');
       return { emails: 0, directions: 0 };
@@ -390,7 +426,7 @@ export class LocalDatabase {
 
   importData(jsonData: string): boolean {
     try {
-      const data = JSON.parse(jsonData);
+      const data = JSON.parse(jsonData) as DbData;
       this.data = {
         emails: data.emails || [],
         directions: data.directions || [],
@@ -399,8 +435,8 @@ export class LocalDatabase {
       };
       this.saveData();
       return true;
-    } catch (error) {
-      console.error('❌ Ошибка импорта:', error);
+    } catch (error: unknown) {
+      console.error('❌ Ошибка импорта:', error instanceof Error ? error.message : String(error));
       return false;
     }
   }
@@ -410,15 +446,15 @@ export class LocalDatabase {
   exportEmailsByDirection(directionIds: number[]): string {
     if (!this.isReady()) return '{}';
 
-    const filteredEmails = (this.data.emails || []).filter((e: any) =>
+    const filteredEmails = (this.data.emails || []).filter((e: Email) =>
       directionIds.includes(e.direction_id || 0)
     );
 
-    const relatedDirections = (this.data.directions || []).filter((d: any) =>
+    const relatedDirections = (this.data.directions || []).filter((d: Direction) =>
       directionIds.includes(d.id)
     );
 
-    const exportData = {
+    const exportData: DbData = {
       emails: filteredEmails,
       directions: relatedDirections,
       chat_history: [],
@@ -456,11 +492,11 @@ export class LocalDatabase {
         counter++;
       }
       const uint8 = new Uint8Array(data);
-      await adapter.writeBinary(filePath, uint8);
+      await adapter.writeBinary(filePath, uint8.buffer);
       console.log('✅ Изображение сохранено:', filePath);
       return filePath;
-    } catch (error) {
-      console.error('❌ Ошибка сохранения изображения:', error);
+    } catch (error: unknown) {
+      console.error('❌ Ошибка сохранения изображения:', error instanceof Error ? error.message : String(error));
       return null;
     }
   }
@@ -472,8 +508,8 @@ export class LocalDatabase {
         await adapter.remove(imagePath);
         console.log('🗑️ Изображение удалено:', imagePath);
       }
-    } catch (error) {
-      console.error('❌ Ошибка удаления изображения:', error);
+    } catch (error: unknown) {
+      console.error('❌ Ошибка удаления изображения:', error instanceof Error ? error.message : String(error));
     }
   }
 }

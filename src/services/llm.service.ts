@@ -2,18 +2,58 @@
 import { requestUrl } from 'obsidian';
 import MailerPlugin from '../main';
 
+export interface LLMSettings {
+  llmModel: string;
+  llmApiUrl: string;
+  llmSystemPrompt: string;
+}
+
+export interface EmailData {
+  subject?: string;
+  text?: string;
+  author?: string;
+  date?: string;
+}
+
+export interface DirectionData {
+  name: string;
+}
+
+export interface DatabaseData {
+  emails?: EmailData[];
+  directions?: DirectionData[];
+}
+
+export interface LLMResponseMessage {
+  content?: string;
+}
+
+export interface LLMResponseChoice {
+  message?: LLMResponseMessage;
+}
+
+export interface LLMResponse {
+  choices?: LLMResponseChoice[];
+}
+
+export interface ScoredEmail {
+  email: EmailData;
+  score: number;
+  matchCount: number;
+}
+
 export class LLMService {
-  settings: any;
+  settings: LLMSettings;
   plugin: MailerPlugin;
   private lastRequestTime: number = 0;
   private minRequestInterval: number = 2000;
 
-  constructor(settings: any, plugin: MailerPlugin) {
+  constructor(settings: LLMSettings, plugin: MailerPlugin) {
     this.settings = settings;
     this.plugin = plugin;
   }
 
-  updateSettings(newSettings: any) {
+  updateSettings(newSettings: LLMSettings) {
     this.settings = newSettings;
     console.log('🔄 LLM настройки обновлены');
   }
@@ -40,16 +80,13 @@ export class LLMService {
     return null;
   }
 
-  // ===== 🔥 НОВЫЙ МЕТОД: ОЧИСТКА ТЕКСТА ДЛЯ LLM =====
   private cleanTextForLLM(text: string): string {
     if (!text) return '';
     
-    // Заменяем переносы строк на пробелы, но сохраняем структуру
-    // для лучшего понимания контекста
     return text
-      .replace(/\n{3,}/g, '\n\n') // Множественные переносы -> два переноса
-      .replace(/\n/g, ' ')        // Одиночные переносы -> пробел
-      .replace(/\s{2,}/g, ' ')    // Множественные пробелы -> один пробел
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/\n/g, ' ')
+      .replace(/\s{2,}/g, ' ')
       .trim();
   }
 
@@ -66,21 +103,22 @@ export class LLMService {
     this.lastRequestTime = Date.now();
   }
 
-  private async retryWithBackoff(
-    fn: () => Promise<any>,
+  private async retryWithBackoff<T>(
+    fn: () => Promise<T>,
     maxRetries: number = 3,
     baseDelay: number = 3000
-  ): Promise<any> {
+  ): Promise<T> {
     let lastError: Error | null = null;
     
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         await this.waitForRateLimit();
         return await fn();
-      } catch (error: any) {
-        lastError = error;
+      } catch (error: unknown) {
+        lastError = error instanceof Error ? error : new Error(String(error));
         
-        if (error.message?.includes('429') || error.status === 429) {
+        const err = error as { message?: string; status?: number };
+        if (err.message?.includes('429') || err.status === 429) {
           const delay = baseDelay * Math.pow(2, attempt);
           console.log(`⚠️ Получена ошибка 429. Повторная попытка через ${delay}мс (попытка ${attempt + 1}/${maxRetries})...`);
           await new Promise(resolve => setTimeout(resolve, delay));
@@ -106,12 +144,12 @@ export class LLMService {
     return [...new Set(words)];
   }
 
-  private findRelevantEmails(emails: any[], keywords: string[]): any[] {
+  private findRelevantEmails(emails: EmailData[], keywords: string[]): EmailData[] {
     if (keywords.length === 0) {
       return emails;
     }
 
-    const scoredEmails = emails.map((email) => {
+    const scoredEmails: ScoredEmail[] = emails.map((email) => {
       const text = (email.subject || '') + ' ' + (email.text || '');
       const lowerText = text.toLowerCase();
       
@@ -139,10 +177,9 @@ export class LLMService {
     return sorted.map(item => item.email);
   }
 
-  // ===== МЕТОД ДЛЯ ЧАТА =====
   async askOnDatabaseWithContext(
-    database: any,
-    settings: any,
+    database: DatabaseData,
+    settings: LLMSettings,
     userQuestion: string,
     fileContext: string = '',
     historyContext: string = ''
@@ -171,7 +208,6 @@ export class LLMService {
     
     console.log(`📧 Используется ${emailsToUse.length} писем для ответа`);
 
-    // 🔥 ОЧИЩАЕМ ТЕКСТ ПИСЕМ ОТ ПЕРЕНОСОВ ДЛЯ LLM
     const dbContext = this.buildOptimizedContext(emailsToUse, directions);
     const fullContext = dbContext + fileContext + historyContext;
 
@@ -221,7 +257,7 @@ ${userQuestion}
         throw new Error(`HTTP ${response.status}: ${response.text}`);
       }
 
-      const data = JSON.parse(response.text);
+      const data: LLMResponse = JSON.parse(response.text);
       const answer = data.choices?.[0]?.message?.content || 'Нет ответа от LLM';
 
       console.log(`✅ Ответ получен, длина: ${answer.length} символов`);
@@ -229,8 +265,7 @@ ${userQuestion}
     });
   }
 
-  // ===== ОПТИМИЗИРОВАННЫЙ КОНТЕКСТ С ОЧИСТКОЙ ТЕКСТА =====
-  private buildOptimizedContext(emails: any[], directions: any[]): string {
+  private buildOptimizedContext(emails: EmailData[], directions: DirectionData[]): string {
     let context = `Найдено ${emails.length} писем.\n`;
 
     if (directions.length > 0) {
@@ -238,7 +273,7 @@ ${userQuestion}
     }
 
     const maxEmails = Math.min(emails.length, 80);
-    const uniqueSubjects = new Set();
+    const uniqueSubjects = new Set<string>();
     let emailCount = 0;
     
     for (const email of emails) {
@@ -246,7 +281,6 @@ ${userQuestion}
       
       const subject = email.subject || 'Без темы';
       
-      // 🔥 ОЧИЩАЕМ ТЕКСТ ОТ ПЕРЕНОСОВ ДЛЯ LLM
       const rawText = email.text || '';
       const cleanText = this.cleanTextForLLM(rawText);
       const textPreview = cleanText.length > 350 ? cleanText.substring(0, 350) + '...' : cleanText;
@@ -267,8 +301,7 @@ ${userQuestion}
     return context;
   }
 
-  // ===== МЕТОД ДЛЯ ВСЕЙ БАЗЫ =====
-  async askOnDatabase(database: any, settings: any, userQuestion: string): Promise<string> {
+  async askOnDatabase(database: DatabaseData, settings: LLMSettings, userQuestion: string): Promise<string> {
     const { llmModel, llmApiUrl, llmSystemPrompt } = settings || this.settings;
     const llmApiKey = this.getApiKey();
 
@@ -340,7 +373,7 @@ ${userQuestion}
         throw new Error(`HTTP ${response.status}: ${response.text}`);
       }
 
-      const data = JSON.parse(response.text);
+      const data: LLMResponse = JSON.parse(response.text);
       const answer = data.choices?.[0]?.message?.content || 'Нет ответа от LLM';
 
       console.log(`✅ Ответ получен, длина: ${answer.length} символов`);
@@ -348,8 +381,7 @@ ${userQuestion}
     });
   }
 
-  // ===== СТАРЫЙ МЕТОД (для одного письма) =====
-  async ask(emailData: any, settings: any): Promise<string> {
+  async ask(emailData: EmailData, settings: LLMSettings): Promise<string> {
     const { llmModel, llmApiUrl, llmSystemPrompt } = settings || this.settings;
     const llmApiKey = this.getApiKey();
 
@@ -359,7 +391,6 @@ ${userQuestion}
 
     const systemPrompt = llmSystemPrompt || `Ты — эксперт TECHNONICOL. Отвечай на русском языке, используя только информацию из письма.`;
 
-    // 🔥 ОЧИЩАЕМ ТЕКСТ ПИСЬМА ОТ ПЕРЕНОСОВ
     const cleanText = this.cleanTextForLLM(emailData.text || '');
 
     const userPrompt = `
@@ -402,13 +433,12 @@ ${cleanText}
         throw new Error(`HTTP ${response.status}: ${response.text}`);
       }
 
-      const data = JSON.parse(response.text);
+      const data: LLMResponse = JSON.parse(response.text);
       return data.choices?.[0]?.message?.content || 'Нет ответа от LLM';
     });
   }
 
-  // ===== УНИВЕРСАЛЬНЫЙ ЗАПРОС =====
-  async askCustom(prompt: string, settings: any): Promise<string> {
+  async askCustom(prompt: string, settings: LLMSettings): Promise<string> {
     const { llmModel, llmApiUrl, llmSystemPrompt } = settings || this.settings;
     const llmApiKey = this.getApiKey();
 
@@ -447,7 +477,7 @@ ${cleanText}
         throw new Error(`HTTP ${response.status}: ${response.text}`);
       }
 
-      const data = JSON.parse(response.text);
+      const data: LLMResponse = JSON.parse(response.text);
       return data.choices?.[0]?.message?.content || 'Нет ответа от LLM';
     });
   }

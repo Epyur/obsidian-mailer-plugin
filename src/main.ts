@@ -96,19 +96,19 @@ export default class MailerPlugin extends Plugin {
         // @ts-ignore
         value = storage.getSecret(secretName);
         console.log('✅ Used getSecret method');
-      } catch (_e) {
+      } catch (_e: unknown) {
         try {
           // Try get (alternative)
           // @ts-ignore
           value = storage.get(secretName);
           console.log('✅ Used get method');
-        } catch (_e2) {
+        } catch (_e2: unknown) {
           try {
             // Try direct property access
             // @ts-ignore
             value = storage[secretName];
             console.log('✅ Used property access');
-          } catch (_e3) {
+          } catch (_e3: unknown) {
             console.warn('⚠️ Could not retrieve secret');
           }
         }
@@ -117,7 +117,7 @@ export default class MailerPlugin extends Plugin {
       console.log(`🔑 Secret "${secretName}":`, value ? '✅ found' : '❌ not found');
       return value || null;
 
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('❌ Error getting secret:', error);
       // FALLBACK: check old settings
       if (this.settings.llmApiKey) {
@@ -155,12 +155,12 @@ export default class MailerPlugin extends Plugin {
         // @ts-ignore
         await storage.setSecret(secretName, value);
         console.log('✅ Used setSecret method');
-      } catch (_e) {
+      } catch (_e: unknown) {
         try {
           // @ts-ignore
           await storage.set(secretName, value);
           console.log('✅ Used set method');
-        } catch (_e2) {
+        } catch (_e2: unknown) {
           // @ts-ignore
           storage[secretName] = value;
           console.log('✅ Used property assignment');
@@ -170,7 +170,7 @@ export default class MailerPlugin extends Plugin {
       console.log(`✅ Secret "${secretName}" saved`);
       return true;
 
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('❌ Error saving secret:', error);
       return false;
     }
@@ -196,7 +196,7 @@ export default class MailerPlugin extends Plugin {
       console.log('✅ Local storage initialized successfully');
       const stats = this.db.getStats();
       console.log(`📊 Local storage: ${stats.emails} emails, ${stats.directions} directions`);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('❌ Storage initialization error:', error);
       new Notice('❌ Error initializing local storage');
     }
@@ -307,18 +307,17 @@ class MailerSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl('h2', { text: '🤖 Technical Assistant TECHNONICOL' });
+    new Setting(containerEl).setHeading().setName('Technical Assistant TECHNONICOL');
 
     const stats = this.plugin.db.getStats();
     const pending = this.plugin.db.getPendingSync().length;
 
     const statusContainer = containerEl.createDiv({ cls: 'mailer-status-container' });
-    (statusContainer as HTMLElement).style.cssText = 'padding: 10px; background: var(--background-secondary); border-radius: 4px; margin-bottom: 10px;';
     statusContainer.createEl('p', { text: `📊 Local storage: ${stats.emails} emails, ${stats.directions} directions` });
     statusContainer.createEl('p', { text: `⏳ Pending sync: ${pending}` });
 
     // ===== CLOUD SETTINGS =====
-    containerEl.createEl('h3', { text: '☁️ Cloud sync' });
+    new Setting(containerEl).setHeading().setName('Cloud sync');
 
     new Setting(containerEl)
       .setName('API URL')
@@ -352,7 +351,7 @@ class MailerSettingTab extends PluginSettingTab {
         }));
 
     // ===== LOCAL SETTINGS =====
-    containerEl.createEl('h3', { text: '📝 Local settings' });
+    new Setting(containerEl).setHeading().setName('Local settings');
 
     new Setting(containerEl)
       .setName('Default author')
@@ -377,7 +376,7 @@ class MailerSettingTab extends PluginSettingTab {
         }));
 
     // ===== TEMPLATES =====
-    containerEl.createEl('h3', { text: '📄 Export templates' });
+    new Setting(containerEl).setHeading().setName('Export templates');
 
     new Setting(containerEl)
       .setName('Path to Word template')
@@ -390,7 +389,7 @@ class MailerSettingTab extends PluginSettingTab {
             this.plugin.settings.templatePath = value;
             await this.plugin.saveSettings();
           });
-        (text.inputEl as HTMLInputElement).style.cssText = 'width: 100%;';
+        text.inputEl.addClass('mailer-input-fullwidth');
       });
 
     new Setting(containerEl)
@@ -405,8 +404,8 @@ class MailerSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
             new Notice(`✅ Template created: ${path}`);
             this.display();
-          } catch (error) {
-            new Notice(`❌ Error: ${(error as Error).message}`);
+          } catch (error: unknown) {
+            new Notice(`❌ Error: ${error instanceof Error ? error.message : String(error)}`);
           }
         }));
 
@@ -431,7 +430,7 @@ class MailerSettingTab extends PluginSettingTab {
         }));
 
     // ===== LLM =====
-    containerEl.createEl('h3', { text: '🧠 AI Assistant' });
+    new Setting(containerEl).setHeading().setName('AI Assistant');
 
     new Setting(containerEl)
       .setName('LLM API URL')
@@ -477,7 +476,7 @@ class MailerSettingTab extends PluginSettingTab {
             this.plugin.settings.llmSystemPrompt = value;
             await this.plugin.saveSettings();
           });
-        (text.inputEl as HTMLTextAreaElement).style.cssText = 'width: 100%; min-height: 150px; font-family: inherit; font-size: 14px;';
+        text.inputEl.addClass('mailer-textarea-fullwidth');
       });
   }
 }

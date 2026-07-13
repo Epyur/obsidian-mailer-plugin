@@ -1,0 +1,8 @@
+node_modules/
+main.js
+manifest.json
+styles.css
+data.json
+mailer_data.json
+mailer_data_backup.json
+*.log

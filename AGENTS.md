@@ -168,13 +168,13 @@ src/
 
 | # | Категория | Действие | Файлы | Статус |
 |---|---|---|---|---|
-| 1 | RELEASE | `.gitignore` + GitHub Release с assets | корень | ⏳ |
-| 2 | MANIFEST | `minAppVersion` → `"1.11.4"`, описание с точкой | `manifest.json` | ⏳ |
-| 3 | DEPS | Удалить `lodash`, `@types/lodash` | `package.json` | ⏳ |
-| 4 | UI | `createEl('hN')` → `Setting.setHeading()` | `main.ts` | ⏳ |
-| 5 | STYLING | Инлайн-стили → CSS классы | `main.ts`, `emails.view.ts`, `styles.css` | ⏳ |
+| 1 | RELEASE | `.gitignore` + GitHub Release с assets | корень | ✅ |
+| 2 | MANIFEST | `minAppVersion` → `"1.11.4"`, описание с точкой | `manifest.json` | ✅ |
+| 3 | DEPS | Удалить `lodash`, `@types/lodash` | `package.json` | ✅ |
+| 4 | UI | `createEl('hN')` → `Setting.setHeading()` | `main.ts` | ✅ |
+| 5 | STYLING | Инлайн-стили → CSS классы | `main.ts`, `emails.view.ts`, `styles.css` | ✅ |
 | 6 | TYPING | `any` → конкретные интерфейсы | все `.ts` | ⏳ |
-| 7 | TYPING | `catch(e)` → `catch(e: unknown)` + `instanceof Error` | все `.ts` | ⏳ |
+| 7 | TYPING | `catch(e)` → `catch(e: unknown)` + `instanceof Error` | все `.ts` | ✅ |
 | 8 | TYPING | Убрать избыточные `as`-assertions | `main.ts`, `emails.view.ts` | ⏳ |
 | 9 | ASYNC | `void` + `.catch()` для Promise | `main.ts`, `db.ts`, `emails.view.ts` | ⏳ |
 | 10 | OBSIDIAN API | `setTimeout` → `window.setTimeout` | `llm.service.ts`, `emails.view.ts` | ⏳ |

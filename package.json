@@ -16,10 +16,8 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@types/lodash": "^4.14.0",
     "docx": "^9.7.1",
-    "jszip": "^3.10.1",
-    "lodash": "^4.17.21"
+    "jszip": "^3.10.1"
   },
   "allowScripts": {
     "esbuild@0.17.19": true

@@ -1,14 +1,18 @@
 // src/services/sync.service.ts
 import { Notice } from 'obsidian';
-import { LocalDatabase } from '../database/db';
+import { LocalDatabase, Email } from '../database/db';
 import MailerPlugin from '../main';
+
+interface SyncServiceSettings {
+  apiUrl: string;
+}
 
 export class SyncService {
   private db: LocalDatabase;
-  private settings: any;
+  private settings: SyncServiceSettings;
   private plugin: MailerPlugin;
 
-  constructor(db: LocalDatabase, settings: any, plugin: MailerPlugin) {
+  constructor(db: LocalDatabase, settings: SyncServiceSettings, plugin: MailerPlugin) {
     this.db = db;
     this.settings = settings;
     this.plugin = plugin;
@@ -44,7 +48,7 @@ export class SyncService {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            emails: pending.map((email: any) => ({
+            emails: pending.map((email: Email) => ({
               subject: email.subject,
               text: email.text,
               author: email.author || 'Иванов И.И.',
@@ -55,7 +59,7 @@ export class SyncService {
         });
         
         if (pushResponse.ok) {
-          const result = await pushResponse.json();
+          const _result: unknown = await pushResponse.json();
           
           for (const email of pending) {
             this.db.markAsSynced(email.id);
@@ -80,8 +84,8 @@ export class SyncService {
       });
       
       if (pullResponse.ok) {
-        const data = await pullResponse.json();
-        const cloudEmails = data.emails || [];
+        const data: { emails?: Email[] } = await pullResponse.json() as { emails?: Email[] };
+        const cloudEmails: Email[] = data.emails || [];
         
         if (cloudEmails.length > 0) {
           const added = this.db.addCloudEmails(cloudEmails);
@@ -96,8 +100,8 @@ export class SyncService {
       
       new Notice('✅ Синхронизация завершена!');
       
-    } catch (error) {
-      const errMsg = (error as Error).message;
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
       new Notice(`❌ Ошибка синхронизации: ${errMsg}`);
       console.error('Ошибка синхронизации:', error);
     }
@@ -107,7 +111,7 @@ export class SyncService {
     await this.syncWithCloud();
   }
 
-  updateSettings(newSettings: any): void {
+  updateSettings(newSettings: SyncServiceSettings): void {
     this.settings = newSettings;
   }
 }

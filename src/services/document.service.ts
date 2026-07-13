@@ -1,10 +1,39 @@
 // src/services/document.service.ts
-import { Notice, TFile } from 'obsidian';
+import { App, Notice, TFile } from 'obsidian';
 import JSZip from 'jszip';
 import { Document, Packer, Paragraph, TextRun, ImageRun } from 'docx';
 
+interface EmailData {
+  number?: string;
+  subject?: string;
+  text?: string;
+  date?: string;
+  author?: string;
+  images?: string[];
+}
+
+interface DocumentSettings {
+  defaultAuthor?: string;
+  templatePath?: string;
+  placeholders?: string;
+}
+
+interface TemplateData {
+  number: string;
+  subject: string;
+  text: string;
+  images: string[];
+  textForWord: string;
+  author: string;
+  date: string;
+  year: string;
+  month: string;
+  day: string;
+  time: string;
+}
+
 export class DocumentService {
-  private app: any;
+  private app: App;
 
   constructor() {
     // @ts-ignore
@@ -95,7 +124,7 @@ export class DocumentService {
         const height = (buffer[9] << 8) + buffer[8];
         return { width, height };
       }
-    } catch (e) {
+    } catch (e: unknown) {
       console.warn('⚠️ Не удалось определить размер изображения:', path, e);
     }
     return { width: 400, height: 300 };
@@ -105,14 +134,13 @@ export class DocumentService {
     return ((buffer[offset] ?? 0) << 24) + ((buffer[offset + 1] ?? 0) << 16) + ((buffer[offset + 2] ?? 0) << 8) + (buffer[offset + 3] ?? 0);
   }
 
-  async exportToWord(emailData: any, settings: any): Promise<string> {
+  async exportToWord(emailData: EmailData, settings: DocumentSettings): Promise<string> {
     try {
       const { defaultAuthor, templatePath, placeholders } = settings;
       
-      // Парсим плейсхолдеры
-      let placeholderMap = {};
+      let placeholderMap: Record<string, string> = {};
       try {
-        placeholderMap = JSON.parse(placeholders);
+        placeholderMap = JSON.parse(placeholders ?? '{}');
       } catch {
         placeholderMap = {
           '{{Номер}}': 'number',
@@ -130,7 +158,7 @@ export class DocumentService {
       const originalText = emailData.text || '';
       const emailImages: string[] = emailData.images || [];
       
-      const data = {
+      const data: TemplateData = {
         number: emailData.number || '',
         subject: emailData.subject || '',
         text: originalText,
@@ -163,7 +191,7 @@ export class DocumentService {
           } else {
             console.warn('⚠️ Шаблон не найден или не .docx:', templatePath);
           }
-        } catch (error) {
+        } catch (error: unknown) {
           console.warn('⚠️ Ошибка загрузки шаблона:', error);
         }
       }
@@ -201,16 +229,14 @@ export class DocumentService {
           } else {
             throw new Error('Не найден word/document.xml в шаблоне');
           }
-        } catch (error) {
+        } catch (error: unknown) {
           console.error('❌ Ошибка обработки шаблона:', error);
           resultBuffer = await this.createFallbackDocx(data);
         }
       } else {
         resultBuffer = await this.createFallbackDocx(data);
-        console.log('📄 Использован стандартный шаблон');
       }
       
-      // ===== 3. СОХРАНЯЕМ ФАЙЛ =====
       const safeNumber = this.sanitizeFileName(data.number || 'без_номера');
       const safeSubject = this.sanitizeFileName((data.subject || 'Без темы').substring(0, 30));
       const fileName = `Письмо_${safeNumber}_${safeSubject}.docx`;
@@ -231,7 +257,7 @@ export class DocumentService {
       }
       
       const uint8Array = new Uint8Array(resultBuffer);
-      await adapter.writeBinary(filePath, uint8Array);
+      await adapter.writeBinary(filePath, uint8Array.buffer as ArrayBuffer);
       
       const file = this.app.vault.getAbstractFileByPath(filePath);
       if (file instanceof TFile) {
@@ -241,15 +267,15 @@ export class DocumentService {
       new Notice(`✅ Экспорт завершен: ${fileName}${templateFound ? ' (с шаблоном)' : ' (стандартный)'}`);
       return filePath;
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Ошибка экспорта:', error);
-      new Notice(`❌ Ошибка экспорта: ${(error as Error).message}`);
+      new Notice(`❌ Ошибка экспорта: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
 
   // ===== СОЗДАНИЕ ЗАПАСНОГО .DOCX (через docx lib) =====
-  private async createFallbackDocx(data: any): Promise<ArrayBuffer> {
+  private async createFallbackDocx(data: TemplateData): Promise<ArrayBuffer> {
     const adapter = this.app.vault.adapter;
     const paragraphs: Paragraph[] = [];
 
@@ -305,7 +331,7 @@ export class DocumentService {
               transformation: { width: Math.max(imgWidth, 50), height: Math.max(imgHeight, 50) },
               type: imgPath.toLowerCase().endsWith('.png') ? 'png' as const : 'jpg' as const
             }));
-          } catch (e) {
+          } catch (e: unknown) {
             console.warn('⚠️ Ошибка вставки изображения:', e);
             children.push(new TextRun({ text: `[Ошибка загрузки изображения ${match[1]}]` }));
           }
@@ -387,16 +413,16 @@ export class DocumentService {
       const buffer = await zip.generateAsync({ type: 'arraybuffer' });
       const uint8Array = new Uint8Array(buffer);
       
-      await adapter.writeBinary(templatePath, uint8Array);
+      await adapter.writeBinary(templatePath, uint8Array.buffer as ArrayBuffer);
       
       new Notice(`✅ Создан шаблон: ${templatePath}`);
       new Notice(`💡 Откройте в Word и отредактируйте оформление`);
       
       return templatePath;
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Ошибка создания шаблона:', error);
-      new Notice(`❌ Ошибка: ${(error as Error).message}`);
+      new Notice(`❌ Ошибка: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -415,8 +441,8 @@ export class DocumentService {
       }
       
       return { valid: true };
-    } catch (error) {
-      return { valid: false, error: (error as Error).message };
+    } catch (error: unknown) {
+      return { valid: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
 
@@ -430,12 +456,12 @@ export class DocumentService {
       
       const files = await adapter.list(folderPath);
       const templates = files.files
-        .filter((file: any) => file.name.toLowerCase().endsWith('.docx'))
-        .map((file: any) => file.path);
+        .filter((file: string) => file.toLowerCase().endsWith('.docx'))
+        .map((file: string) => file);
       
       return templates;
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Ошибка получения списка шаблонов:', error);
       return [];
     }

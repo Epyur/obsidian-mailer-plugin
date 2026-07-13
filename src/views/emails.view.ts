@@ -1,6 +1,8 @@
 // src/views/emails.view.ts
-import { ItemView, WorkspaceLeaf, Notice, TFile, Modal } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Notice, TFile, Modal, App } from 'obsidian';
 import MailerPlugin from '../main';
+import { Email, Direction, DbData, Stats } from '../database/db';
+import { DatabaseData } from '../services/llm.service';
 
 export const VIEW_TYPE_EMAILS = 'mailer-emails-view';
 
@@ -11,7 +13,7 @@ class ResizableModal extends Modal {
   protected previousWidth: string = '';
   protected previousHeight: string = '';
 
-  constructor(app: any) {
+  constructor(app: App) {
     super(app);
   }
 
@@ -20,28 +22,13 @@ class ResizableModal extends Modal {
     
     const modalEl = contentEl.parentElement;
     if (modalEl) {
-      (modalEl as HTMLElement).style.resize = 'both';
-      (modalEl as HTMLElement).style.overflow = 'auto';
-      (modalEl as HTMLElement).style.minWidth = '500px';
-      (modalEl as HTMLElement).style.minHeight = '300px';
-      (modalEl as HTMLElement).style.maxWidth = '95vw';
-      (modalEl as HTMLElement).style.maxHeight = '95vh';
+      (modalEl as HTMLElement).addClass('mailer-modal-resizable');
     }
   }
 
   protected addFullscreenButton(headerEl: HTMLElement): void {
     const fullscreenBtn = headerEl.createEl('button', { cls: 'mailer-fullscreen-btn' });
     fullscreenBtn.textContent = '⛶';
-    (fullscreenBtn as HTMLElement).style.cssText = `
-      padding: 2px 8px;
-      border: none;
-      border-radius: 4px;
-      background: var(--background-secondary);
-      cursor: pointer;
-      font-size: 16px;
-      line-height: 1;
-      margin-left: 8px;
-    `;
     fullscreenBtn.title = 'Развернуть на весь экран';
 
     fullscreenBtn.addEventListener('click', () => {
@@ -67,11 +54,7 @@ class ResizableModal extends Modal {
       this.previousWidth = modalElStyle.style.width || '';
       this.previousHeight = modalElStyle.style.height || '';
       
-      modalElStyle.style.width = '95vw';
-      modalElStyle.style.height = '95vh';
-      modalElStyle.style.maxWidth = '95vw';
-      modalElStyle.style.maxHeight = '95vh';
-      modalElStyle.style.resize = 'none';
+      modalElStyle.addClass('mailer-modal-fullscreen');
       
       this.isFullscreen = true;
       
@@ -81,11 +64,7 @@ class ResizableModal extends Modal {
         btn.setAttribute('title', 'Вернуть обычный размер');
       }
     } else {
-      modalElStyle.style.width = this.previousWidth || '';
-      modalElStyle.style.height = this.previousHeight || '';
-      modalElStyle.style.maxWidth = '95vw';
-      modalElStyle.style.maxHeight = '95vh';
-      modalElStyle.style.resize = 'both';
+      modalElStyle.removeClass('mailer-modal-fullscreen');
       
       this.isFullscreen = false;
       
@@ -99,16 +78,6 @@ class ResizableModal extends Modal {
 
   protected setupResizeHandle(contentEl: HTMLElement): void {
     const resizeHint = contentEl.createEl('div', { cls: 'mailer-resize-hint' });
-    (resizeHint as HTMLElement).style.cssText = `
-      position: absolute;
-      bottom: 4px;
-      right: 8px;
-      font-size: 10px;
-      color: var(--text-muted);
-      opacity: 0.5;
-      pointer-events: none;
-      user-select: none;
-    `;
     resizeHint.textContent = '↘︎ тяните для изменения размера';
   }
 }
@@ -116,11 +85,11 @@ class ResizableModal extends Modal {
 // ===== МОДАЛЬНОЕ ОКНО ДЛЯ СОЗДАНИЯ ПИСЬМА =====
 class CreateEmailModal extends ResizableModal {
   plugin: MailerPlugin;
-  onSubmit: (email: any) => void;
+  onSubmit: (email: Partial<Email>) => void;
   onCancel: () => void;
-  images: { path: string; fileName: string }[] = [];
+  images: ({ path: string; fileName: string } | null)[] = [];
 
-  constructor(plugin: MailerPlugin, onSubmit: (email: any) => void, onCancel: () => void) {
+  constructor(plugin: MailerPlugin, onSubmit: (email: Partial<Email>) => void, onCancel: () => void) {
     super(plugin.app);
     this.plugin = plugin;
     this.onSubmit = onSubmit;
@@ -130,75 +99,59 @@ class CreateEmailModal extends ResizableModal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    (contentEl as HTMLElement).style.cssText = 'max-width: 100%; padding: 20px; display: flex; flex-direction: column; height: 100%;';
+    contentEl.addClass('mailer-modal-content');
     
     this.makeResizable(contentEl);
 
     const headerContainer = contentEl.createDiv({ cls: 'mailer-modal-header' });
-    (headerContainer as HTMLElement).style.cssText = 'display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;';
     
     const titleEl = headerContainer.createEl('h2', { text: '📝 Новое письмо' });
-    (titleEl as HTMLElement).style.cssText = 'margin: 0;';
     
     this.addFullscreenButton(headerContainer);
     
     contentEl.createEl('p', { text: 'Заполните поля и сохраните письмо в локальную базу', cls: 'mailer-modal-desc' });
 
     const formContainer = contentEl.createDiv({ cls: 'mailer-modal-form' });
-    (formContainer as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 14px; margin-top: 16px; flex: 1; overflow-y: auto;';
 
     // Поле: Номер
     const numberGroup = formContainer.createDiv({ cls: 'mailer-form-group' });
-    (numberGroup as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
     numberGroup.createEl('label', { text: '№ исходящего:', cls: 'mailer-form-label' });
     const numberInput = numberGroup.createEl('input', { type: 'text', cls: 'mailer-form-input', placeholder: 'Например: 00268' });
-    (numberInput as HTMLInputElement).style.cssText = 'padding: 8px 12px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-size: 14px;';
 
     // Поле: Тема
     const subjectGroup = formContainer.createDiv({ cls: 'mailer-form-group' });
-    (subjectGroup as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
     subjectGroup.createEl('label', { text: 'Тема:', cls: 'mailer-form-label' });
     const subjectInput = subjectGroup.createEl('input', { type: 'text', cls: 'mailer-form-input', placeholder: 'Краткое описание письма' });
-    (subjectInput as HTMLInputElement).style.cssText = 'padding: 8px 12px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-size: 14px;';
 
     // Поле: Автор
     const authorGroup = formContainer.createDiv({ cls: 'mailer-form-group' });
-    (authorGroup as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
     authorGroup.createEl('label', { text: 'Автор:', cls: 'mailer-form-label' });
     const authorInput = authorGroup.createEl('input', { type: 'text', cls: 'mailer-form-input', placeholder: this.plugin.settings.defaultAuthor });
-    (authorInput as HTMLInputElement).style.cssText = 'padding: 8px 12px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-size: 14px;';
     authorInput.value = this.plugin.settings.defaultAuthor;
 
     // Поле: Направление
     const dirGroup = formContainer.createDiv({ cls: 'mailer-form-group' });
-    (dirGroup as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
     dirGroup.createEl('label', { text: 'Направление:', cls: 'mailer-form-label', attr: { for: 'email-direction-select' } });
     
     const dirSelect = dirGroup.createEl('select', { 
-      cls: 'mailer-form-input',
+      cls: 'mailer-form-input-wide',
       attr: { id: 'email-direction-select' }
     });
-    (dirSelect as HTMLSelectElement).style.cssText = 'width: 100%; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-size: 14px; cursor: pointer;';
     
     this.updateDirectionSelect(dirSelect);
 
     // Поле: Изображения
-    const imagesGroup = formContainer.createDiv({ cls: 'mailer-form-group' });
-    (imagesGroup as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;';
+    const imagesGroup = formContainer.createDiv({ cls: 'mailer-form-group-shrink' });
     imagesGroup.createEl('label', { text: '🖼️ Изображения:', cls: 'mailer-form-label' });
 
     const imagesToolbar = imagesGroup.createDiv({ cls: 'mailer-images-toolbar' });
-    (imagesToolbar as HTMLElement).style.cssText = 'display: flex; gap: 6px; align-items: center; flex-wrap: wrap;';
 
-    const addImageBtn = imagesToolbar.createEl('button', { cls: 'mailer-btn' });
+    const addImageBtn = imagesToolbar.createEl('button', { cls: 'mailer-btn-image' });
     addImageBtn.textContent = '📎 Добавить изображение';
-    (addImageBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer; font-size: 12px;';
 
-    const imageFileInput = imagesToolbar.createEl('input', { type: 'file', attr: { accept: 'image/*' } });
-    (imageFileInput as HTMLInputElement).style.cssText = 'display: none;';
+    const imageFileInput = imagesToolbar.createEl('input', { type: 'file', attr: { accept: 'image/*' }, cls: 'mailer-form-hidden' });
 
     const imagesList = imagesGroup.createDiv({ cls: 'mailer-images-list' });
-    (imagesList as HTMLElement).style.cssText = 'display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;';
 
     addImageBtn.addEventListener('click', () => imageFileInput.click());
 
@@ -221,27 +174,22 @@ class CreateEmailModal extends ResizableModal {
     });
 
     // Поле: Текст
-    const textGroup = formContainer.createDiv({ cls: 'mailer-form-group' });
-    (textGroup as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 4px; flex: 1;';
+    const textGroup = formContainer.createDiv({ cls: 'mailer-form-group-flex' });
     textGroup.createEl('label', { text: 'Текст письма:', cls: 'mailer-form-label' });
     const textArea = textGroup.createEl('textarea', { cls: 'mailer-form-textarea', placeholder: 'Введите текст письма...' });
-    (textArea as HTMLTextAreaElement).style.cssText = 'width: 100%; min-height: 200px; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-family: inherit; font-size: 14px; resize: vertical; flex: 1;';
 
     // Кнопки
     const btnGroup = formContainer.createDiv({ cls: 'mailer-form-buttons' });
-    (btnGroup as HTMLElement).style.cssText = 'display: flex; gap: 10px; margin-top: 8px; justify-content: flex-end; flex-shrink: 0;';
     
-    const cancelBtn = btnGroup.createEl('button', { cls: 'mailer-btn' });
+    const cancelBtn = btnGroup.createEl('button', { cls: 'mailer-btn-default' });
     cancelBtn.textContent = 'Отмена';
-    (cancelBtn as HTMLButtonElement).style.cssText = 'padding: 10px 24px; border: none; border-radius: 4px; background: var(--background-secondary); color: var(--text-normal); cursor: pointer; font-size: 14px;';
     cancelBtn.addEventListener('click', () => {
       this.close();
       this.onCancel();
     });
     
-    const saveBtn = btnGroup.createEl('button', { cls: 'mailer-btn mailer-btn-success' });
+    const saveBtn = btnGroup.createEl('button', { cls: 'mailer-btn-primary' });
     saveBtn.textContent = '💾 Сохранить письмо';
-    (saveBtn as HTMLButtonElement).style.cssText = 'padding: 10px 24px; border: none; border-radius: 4px; background: var(--interactive-accent); color: white; cursor: pointer; font-size: 14px; font-weight: bold;';
     saveBtn.addEventListener('click', async () => {
       const email = {
         number: numberInput.value.trim(),
@@ -249,7 +197,7 @@ class CreateEmailModal extends ResizableModal {
         author: authorInput.value.trim() || this.plugin.settings.defaultAuthor,
         text: textArea.value,
         direction_id: parseInt(dirSelect.value) || 0,
-        images: this.images.map(img => img.path)
+        images: this.images.filter((img): img is { path: string; fileName: string } => img !== null).map(img => img.path)
       };
       
       if (!email.subject || !email.text) {
@@ -274,11 +222,9 @@ class CreateEmailModal extends ResizableModal {
 
   renderImageTag(container: HTMLElement, fileName: string, index: number) {
     const tag = container.createEl('span', { cls: 'mailer-image-tag' });
-    (tag as HTMLElement).style.cssText = 'padding: 2px 10px; background: var(--background-secondary); border-radius: 12px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--background-modifier-border);';
     tag.textContent = `🖼️ {IMG_${index}} ${fileName.substring(0, 20)}`;
 
-    const removeBtn = tag.createEl('span', { text: '✕' });
-    (removeBtn as HTMLElement).style.cssText = 'cursor: pointer; font-size: 10px; opacity: 0.6; margin-left: 2px;';
+    const removeBtn = tag.createEl('span', { cls: 'mailer-image-remove', text: '✕' });
     removeBtn.addEventListener('click', () => {
       const img = this.images[index - 1];
       if (img) {
@@ -306,7 +252,7 @@ class CreateEmailModal extends ResizableModal {
     dirSelect.empty();
     const defaultOption = dirSelect.createEl('option', { value: '0' });
     defaultOption.textContent = 'Без направления';
-    directions.forEach((d: any) => {
+    directions.forEach((d: Direction) => {
       const option = dirSelect.createEl('option', { value: String(d.id) });
       option.textContent = d.name;
     });
@@ -321,12 +267,12 @@ class CreateEmailModal extends ResizableModal {
 // ===== МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ ПИСЬМА =====
 class EditEmailModal extends ResizableModal {
   plugin: MailerPlugin;
-  email: any;
-  onSubmit: (updatedEmail: any) => void;
+  email: Email;
+  onSubmit: (updatedEmail: Partial<Email>) => void;
   onCancel: () => void;
-  images: { path: string; fileName: string }[] = [];
+  images: ({ path: string; fileName: string } | null)[] = [];
 
-  constructor(plugin: MailerPlugin, email: any, onSubmit: (updatedEmail: any) => void, onCancel: () => void) {
+  constructor(plugin: MailerPlugin, email: Email, onSubmit: (updatedEmail: Partial<Email>) => void, onCancel: () => void) {
     super(plugin.app);
     this.plugin = plugin;
     this.email = email;
@@ -337,84 +283,68 @@ class EditEmailModal extends ResizableModal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    (contentEl as HTMLElement).style.cssText = 'max-width: 100%; padding: 20px; display: flex; flex-direction: column; height: 100%;';
+    contentEl.addClass('mailer-modal-content');
     
     this.makeResizable(contentEl);
 
     const headerContainer = contentEl.createDiv({ cls: 'mailer-modal-header' });
-    (headerContainer as HTMLElement).style.cssText = 'display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;';
     
     const titleEl = headerContainer.createEl('h2', { text: '✏️ Редактирование письма' });
-    (titleEl as HTMLElement).style.cssText = 'margin: 0;';
     
     this.addFullscreenButton(headerContainer);
     
     contentEl.createEl('p', { text: 'Измените поля и сохраните изменения', cls: 'mailer-modal-desc' });
 
     const formContainer = contentEl.createDiv({ cls: 'mailer-modal-form' });
-    (formContainer as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 14px; margin-top: 16px; flex: 1; overflow-y: auto;';
 
     // Поле: Номер
     const numberGroup = formContainer.createDiv({ cls: 'mailer-form-group' });
-    (numberGroup as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
     numberGroup.createEl('label', { text: '№ исходящего:', cls: 'mailer-form-label' });
     const numberInput = numberGroup.createEl('input', { type: 'text', cls: 'mailer-form-input' });
-    (numberInput as HTMLInputElement).style.cssText = 'padding: 8px 12px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-size: 14px;';
     numberInput.value = this.email.number || '';
 
     // Поле: Тема
     const subjectGroup = formContainer.createDiv({ cls: 'mailer-form-group' });
-    (subjectGroup as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
     subjectGroup.createEl('label', { text: 'Тема:', cls: 'mailer-form-label' });
     const subjectInput = subjectGroup.createEl('input', { type: 'text', cls: 'mailer-form-input' });
-    (subjectInput as HTMLInputElement).style.cssText = 'padding: 8px 12px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-size: 14px;';
     subjectInput.value = this.email.subject || '';
 
     // Поле: Автор
     const authorGroup = formContainer.createDiv({ cls: 'mailer-form-group' });
-    (authorGroup as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
     authorGroup.createEl('label', { text: 'Автор:', cls: 'mailer-form-label' });
     const authorInput = authorGroup.createEl('input', { type: 'text', cls: 'mailer-form-input' });
-    (authorInput as HTMLInputElement).style.cssText = 'padding: 8px 12px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-size: 14px;';
     authorInput.value = this.email.author || this.plugin.settings.defaultAuthor;
 
     // Поле: Направление
     const dirGroup = formContainer.createDiv({ cls: 'mailer-form-group' });
-    (dirGroup as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
     dirGroup.createEl('label', { text: 'Направление:', cls: 'mailer-form-label', attr: { for: 'email-direction-select-edit' } });
     
     const dirSelect = dirGroup.createEl('select', { 
-      cls: 'mailer-form-input',
+      cls: 'mailer-form-input-wide',
       attr: { id: 'email-direction-select-edit' }
     });
-    (dirSelect as HTMLSelectElement).style.cssText = 'width: 100%; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-size: 14px; cursor: pointer;';
     
     const directions = this.plugin.db.getDirections();
     const defaultOption = dirSelect.createEl('option', { value: '0' });
     defaultOption.textContent = 'Без направления';
-    directions.forEach((d: any) => {
+    directions.forEach((d: Direction) => {
       const option = dirSelect.createEl('option', { value: String(d.id) });
       option.textContent = d.name;
     });
     dirSelect.value = String(this.email.direction_id || 0);
 
     // Поле: Изображения
-    const imagesGroup = formContainer.createDiv({ cls: 'mailer-form-group' });
-    (imagesGroup as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;';
+    const imagesGroup = formContainer.createDiv({ cls: 'mailer-form-group-shrink' });
     imagesGroup.createEl('label', { text: '🖼️ Изображения:', cls: 'mailer-form-label' });
 
     const imagesToolbar = imagesGroup.createDiv({ cls: 'mailer-images-toolbar' });
-    (imagesToolbar as HTMLElement).style.cssText = 'display: flex; gap: 6px; align-items: center; flex-wrap: wrap;';
 
-    const addImageBtn = imagesToolbar.createEl('button', { cls: 'mailer-btn' });
+    const addImageBtn = imagesToolbar.createEl('button', { cls: 'mailer-btn-image' });
     addImageBtn.textContent = '📎 Добавить изображение';
-    (addImageBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer; font-size: 12px;';
 
-    const imageFileInput = imagesToolbar.createEl('input', { type: 'file', attr: { accept: 'image/*' } });
-    (imageFileInput as HTMLInputElement).style.cssText = 'display: none;';
+    const imageFileInput = imagesToolbar.createEl('input', { type: 'file', attr: { accept: 'image/*' }, cls: 'mailer-form-hidden' });
 
     const imagesList = imagesGroup.createDiv({ cls: 'mailer-images-list' });
-    (imagesList as HTMLElement).style.cssText = 'display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;';
 
     // Загружаем существующие изображения
     const existingImages: string[] = this.email.images || [];
@@ -447,28 +377,23 @@ class EditEmailModal extends ResizableModal {
     });
 
     // Поле: Текст
-    const textGroup = formContainer.createDiv({ cls: 'mailer-form-group' });
-    (textGroup as HTMLElement).style.cssText = 'display: flex; flex-direction: column; gap: 4px; flex: 1;';
+    const textGroup = formContainer.createDiv({ cls: 'mailer-form-group-flex' });
     textGroup.createEl('label', { text: 'Текст письма:', cls: 'mailer-form-label' });
-    const textArea = textGroup.createEl('textarea', { cls: 'mailer-form-textarea' });
-    (textArea as HTMLTextAreaElement).style.cssText = 'width: 100%; min-height: 250px; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-family: inherit; font-size: 14px; resize: vertical; flex: 1;';
+    const textArea = textGroup.createEl('textarea', { cls: 'mailer-form-textarea-tall' });
     textArea.value = this.email.text || '';
 
     // Кнопки
     const btnGroup = formContainer.createDiv({ cls: 'mailer-form-buttons' });
-    (btnGroup as HTMLElement).style.cssText = 'display: flex; gap: 10px; margin-top: 8px; justify-content: flex-end; flex-shrink: 0;';
     
-    const cancelBtn = btnGroup.createEl('button', { cls: 'mailer-btn' });
+    const cancelBtn = btnGroup.createEl('button', { cls: 'mailer-btn-default' });
     cancelBtn.textContent = 'Отмена';
-    (cancelBtn as HTMLButtonElement).style.cssText = 'padding: 10px 24px; border: none; border-radius: 4px; background: var(--background-secondary); color: var(--text-normal); cursor: pointer; font-size: 14px;';
     cancelBtn.addEventListener('click', () => {
       this.close();
       this.onCancel();
     });
     
-    const saveBtn = btnGroup.createEl('button', { cls: 'mailer-btn mailer-btn-success' });
+    const saveBtn = btnGroup.createEl('button', { cls: 'mailer-btn-primary' });
     saveBtn.textContent = '💾 Сохранить изменения';
-    (saveBtn as HTMLButtonElement).style.cssText = 'padding: 10px 24px; border: none; border-radius: 4px; background: var(--interactive-accent); color: white; cursor: pointer; font-size: 14px; font-weight: bold;';
     saveBtn.addEventListener('click', async () => {
       const updatedEmail = {
         ...this.email,
@@ -477,7 +402,7 @@ class EditEmailModal extends ResizableModal {
         author: authorInput.value.trim() || this.plugin.settings.defaultAuthor,
         text: textArea.value,
         direction_id: parseInt(dirSelect.value) || 0,
-        images: this.images.filter(img => img !== null).map(img => (img as any).path)
+        images: this.images.filter((img): img is { path: string; fileName: string } => img !== null).map(img => img.path)
       };
       
       if (!updatedEmail.subject || !updatedEmail.text) {
@@ -502,7 +427,6 @@ class EditEmailModal extends ResizableModal {
 
   renderExistingImageTag(container: HTMLElement, imgPath: string, index: number): HTMLSpanElement {
     const tag = container.createEl('span', { cls: 'mailer-image-tag' });
-    (tag as HTMLElement).style.cssText = 'padding: 2px 10px; background: var(--background-secondary); border-radius: 12px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--background-modifier-border);';
     const fileName = imgPath.split('/').pop() || imgPath;
     tag.textContent = `🖼️ {IMG_${index}} ${fileName.substring(0, 20)}`;
     return tag;
@@ -510,11 +434,9 @@ class EditEmailModal extends ResizableModal {
 
   renderImageTag(container: HTMLElement, fileName: string, index: number) {
     const tag = container.createEl('span', { cls: 'mailer-image-tag' });
-    (tag as HTMLElement).style.cssText = 'padding: 2px 10px; background: var(--background-secondary); border-radius: 12px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--background-modifier-border);';
     tag.textContent = `🖼️ {IMG_${index}} ${fileName.substring(0, 20)}`;
 
-    const removeBtn = tag.createEl('span', { text: '✕' });
-    (removeBtn as HTMLElement).style.cssText = 'cursor: pointer; font-size: 10px; opacity: 0.6; margin-left: 2px;';
+    const removeBtn = tag.createEl('span', { cls: 'mailer-image-remove', text: '✕' });
     removeBtn.addEventListener('click', () => {
       const img = this.images[index - 1];
       if (img) {
@@ -557,24 +479,21 @@ class DirectionsManagerModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    (contentEl as HTMLElement).style.cssText = 'max-width: 500px; margin: 0 auto; padding: 20px;';
+    contentEl.addClass('mailer-dir-modal');
 
     contentEl.createEl('h2', { text: '📂 Управление направлениями' });
     contentEl.createEl('p', { text: 'Создавайте и удаляйте направления', cls: 'mailer-modal-desc' });
 
-    const createContainer = contentEl.createDiv({ cls: 'dir-create-container' });
-    (createContainer as HTMLElement).style.cssText = 'display: flex; gap: 8px; margin-bottom: 16px;';
+    const createContainer = contentEl.createDiv({ cls: 'mailer-dir-create' });
     
     const newDirInput = createContainer.createEl('input', {
       type: 'text',
       placeholder: 'Название нового направления...',
-      cls: 'dir-input'
+      cls: 'mailer-dir-input'
     });
-    (newDirInput as HTMLInputElement).style.cssText = 'flex: 1; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-size: 14px;';
     
-    const addBtn = createContainer.createEl('button', { cls: 'dir-btn-primary' });
+    const addBtn = createContainer.createEl('button', { cls: 'mailer-btn-create-dir' });
     addBtn.textContent = '➕ Создать';
-    (addBtn as HTMLButtonElement).style.cssText = 'padding: 8px 16px; border: none; border-radius: 4px; background: var(--interactive-accent); color: white; cursor: pointer; font-weight: bold;';
     addBtn.addEventListener('click', async () => {
       const name = newDirInput.value.trim();
       if (!name) {
@@ -598,10 +517,9 @@ class DirectionsManagerModal extends Modal {
   }
 
   renderDirectionsList(contentEl: HTMLElement) {
-    let listContainer = contentEl.querySelector('.dir-list-container');
+    let listContainer = contentEl.querySelector('.mailer-dir-list');
     if (!listContainer) {
-      listContainer = contentEl.createDiv({ cls: 'dir-list-container' });
-      (listContainer as HTMLElement).style.cssText = 'margin-top: 8px;';
+      listContainer = contentEl.createDiv({ cls: 'mailer-dir-list' });
     } else {
       listContainer.empty();
     }
@@ -609,35 +527,30 @@ class DirectionsManagerModal extends Modal {
     const directions = this.plugin.db.getDirections();
     
     if (directions.length === 0) {
-      const emptyEl = listContainer.createEl('p', { text: '📭 Нет созданных направлений', cls: 'dir-empty' });
-      (emptyEl as HTMLElement).style.cssText = 'color: var(--text-muted); font-style: italic; text-align: center; padding: 20px;';
+      const emptyEl = listContainer.createEl('p', { text: '📭 Нет созданных направлений', cls: 'mailer-dir-empty' });
       return;
     }
 
-    directions.forEach((dir: any) => {
-      const item = listContainer.createEl('div', { cls: 'dir-item' });
-      (item as HTMLElement).style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--background-modifier-border);';
+    directions.forEach((dir: Direction) => {
+      const item = listContainer.createEl('div', { cls: 'mailer-dir-item' });
       
-      const nameSpan = item.createEl('span', { text: `📂 ${dir.name}` });
-      (nameSpan as HTMLElement).style.cssText = 'font-size: 14px;';
+      const nameSpan = item.createEl('span', { cls: 'mailer-dir-name', text: `📂 ${dir.name}` });
       
-      const actions = item.createEl('div', { cls: 'dir-actions' });
-      (actions as HTMLElement).style.cssText = 'display: flex; gap: 6px;';
+      const actions = item.createEl('div', { cls: 'mailer-dir-actions' });
       
-      const deleteBtn = actions.createEl('button', { cls: 'dir-btn-danger' });
+      const deleteBtn = actions.createEl('button', { cls: 'mailer-btn-danger' });
       deleteBtn.textContent = '🗑️';
-      (deleteBtn as HTMLButtonElement).style.cssText = 'padding: 2px 8px; border: none; border-radius: 4px; background: var(--background-modifier-error); color: white; cursor: pointer; font-size: 12px;';
       deleteBtn.addEventListener('click', async () => {
         const emails = this.plugin.db.getAllEmails();
-        const hasEmails = emails.some((e: any) => e.direction_id === dir.id);
+        const hasEmails = emails.some((e: Email) => e.direction_id === dir.id);
         if (hasEmails) {
           new Notice(`⚠️ Нельзя удалить "${dir.name}" - есть письма с этим направлением`);
           return;
         }
         
         try {
-          const allData = JSON.parse(this.plugin.db.exportData());
-          allData.directions = allData.directions.filter((d: any) => d.id !== dir.id);
+          const allData: DbData = JSON.parse(this.plugin.db.exportData());
+          allData.directions = allData.directions.filter((d: Direction) => d.id !== dir.id);
           const success = this.plugin.db.importData(JSON.stringify(allData));
           
           if (success) {
@@ -647,9 +560,9 @@ class DirectionsManagerModal extends Modal {
           } else {
             new Notice('❌ Ошибка удаления направления');
           }
-        } catch (error) {
+        } catch (error: unknown) {
           console.error('Ошибка удаления направления:', error);
-          new Notice(`❌ Ошибка: ${(error as Error).message}`);
+          new Notice(`❌ Ошибка: ${error instanceof Error ? error.message : String(error)}`);
         }
       });
     });
@@ -680,18 +593,15 @@ class ChatLLMModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    (contentEl as HTMLElement).style.cssText = 'max-width: 900px; margin: 0 auto; padding: 20px; display: flex; flex-direction: column; height: 90vh;';
+    contentEl.addClass('mailer-chat-modal');
 
-    const header = contentEl.createDiv({ cls: 'chat-header' });
-    (header as HTMLElement).style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-shrink: 0; flex-wrap: wrap; gap: 8px;';
+    const header = contentEl.createDiv({ cls: 'mailer-chat-header' });
     header.createEl('h2', { text: '🤖 Чат с AI помощником' });
     
-    const headerActions = header.createDiv({ cls: 'chat-header-actions' });
-    (headerActions as HTMLElement).style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap;';
+    const headerActions = header.createDiv({ cls: 'mailer-chat-header-actions' });
     
-    const clearBtn = headerActions.createEl('button', { cls: 'chat-btn' });
+    const clearBtn = headerActions.createEl('button', { cls: 'mailer-btn-chat' });
     clearBtn.textContent = '🗑️ Очистить';
-    (clearBtn as HTMLButtonElement).style.cssText = 'padding: 4px 12px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer; font-size: 12px;';
     clearBtn.addEventListener('click', () => {
       this.messages = [];
       this.uploadedFiles = [];
@@ -699,17 +609,15 @@ class ChatLLMModal extends Modal {
       this.lastQuestion = '';
       if (this.chatContainer) {
         this.chatContainer.empty();
-        const welcomeMsg = this.chatContainer.createDiv({ cls: 'chat-message chat-message-assistant' });
-        (welcomeMsg as HTMLElement).style.cssText = 'padding: 12px 16px; margin-bottom: 8px; background: var(--background-secondary); border-radius: 8px; border-left: 3px solid var(--interactive-accent);';
+        const welcomeMsg = this.chatContainer.createDiv({ cls: 'mailer-chat-message mailer-chat-message-assistant' });
         welcomeMsg.textContent = '👋 Здравствуйте! Я AI-помощник по пожарной безопасности TECHNONICOL. Задайте мне вопрос по базе писем или загрузите документ для анализа.';
       }
       this.updateInfoBar();
       new Notice('🗑️ История чата очищена');
     });
     
-    const createEmailBtn = headerActions.createEl('button', { cls: 'chat-btn chat-btn-primary' });
+    const createEmailBtn = headerActions.createEl('button', { cls: 'mailer-btn-chat-primary' });
     createEmailBtn.textContent = '📝 Создать письмо';
-    (createEmailBtn as HTMLButtonElement).style.cssText = 'padding: 4px 12px; border: none; border-radius: 4px; background: var(--interactive-accent); color: white; cursor: pointer; font-size: 12px; font-weight: bold;';
     createEmailBtn.addEventListener('click', () => {
       if (!this.lastAnswer) {
         new Notice('⚠️ Сначала получите ответ от AI');
@@ -719,36 +627,28 @@ class ChatLLMModal extends Modal {
       this.openCreateEmailFromLLM(this.lastAnswer, this.lastQuestion);
     });
     
-    const closeBtn = headerActions.createEl('button', { cls: 'chat-btn' });
+    const closeBtn = headerActions.createEl('button', { cls: 'mailer-btn-chat' });
     closeBtn.textContent = '✕ Закрыть';
-    (closeBtn as HTMLButtonElement).style.cssText = 'padding: 4px 12px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer; font-size: 12px;';
     closeBtn.addEventListener('click', () => this.close());
 
-    const infoBar = contentEl.createDiv({ cls: 'chat-info' });
-    (infoBar as HTMLElement).style.cssText = 'padding: 8px 12px; background: var(--background-secondary); border-radius: 4px; margin-bottom: 12px; font-size: 12px; color: var(--text-muted); flex-shrink: 0;';
+    const infoBar = contentEl.createDiv({ cls: 'mailer-chat-info' });
     this.updateInfoBar(infoBar);
 
-    this.chatContainer = contentEl.createDiv({ cls: 'chat-messages' });
-    (this.chatContainer as HTMLElement).style.cssText = 'flex: 1; overflow-y: auto; padding: 12px; background: var(--background-primary); border-radius: 8px; border: 1px solid var(--background-modifier-border); min-height: 200px; margin-bottom: 12px;';
+    this.chatContainer = contentEl.createDiv({ cls: 'mailer-chat-messages' });
 
-    const welcomeMsg = this.chatContainer.createDiv({ cls: 'chat-message chat-message-assistant' });
-    (welcomeMsg as HTMLElement).style.cssText = 'padding: 12px 16px; margin-bottom: 8px; background: var(--background-secondary); border-radius: 8px; border-left: 3px solid var(--interactive-accent);';
+    const welcomeMsg = this.chatContainer.createDiv({ cls: 'mailer-chat-message mailer-chat-message-assistant' });
     welcomeMsg.textContent = '👋 Здравствуйте! Я AI-помощник по пожарной безопасности TECHNONICOL. Задайте мне вопрос по базе писем или загрузите документ для анализа.';
 
-    const fileArea = contentEl.createDiv({ cls: 'chat-file-area' });
-    (fileArea as HTMLElement).style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px; flex-shrink: 0; flex-wrap: wrap; align-items: center;';
+    const fileArea = contentEl.createDiv({ cls: 'mailer-chat-file-area' });
     
-    const fileInput = fileArea.createEl('input', { type: 'file', attr: { multiple: 'true' } });
-    (fileInput as HTMLInputElement).style.cssText = 'display: none;';
+    const fileInput = fileArea.createEl('input', { type: 'file', attr: { multiple: 'true' }, cls: 'mailer-form-hidden' });
     fileInput.accept = '.pdf,.docx,.doc,.txt,.json,.md,.csv,.xlsx,.xls';
     
-    const uploadBtn = fileArea.createEl('button', { cls: 'chat-btn' });
+    const uploadBtn = fileArea.createEl('button', { cls: 'mailer-btn-upload' });
     uploadBtn.textContent = '📎 Загрузить документ';
-    (uploadBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer; font-size: 13px;';
     uploadBtn.addEventListener('click', () => fileInput.click());
     
-    const fileList = fileArea.createDiv({ cls: 'chat-file-list' });
-    (fileList as HTMLElement).style.cssText = 'display: flex; gap: 6px; flex-wrap: wrap; flex: 1;';
+    const fileList = fileArea.createDiv({ cls: 'mailer-chat-file-list' });
     
     fileInput.addEventListener('change', async (e) => {
       const files = (e.target as HTMLInputElement).files;
@@ -773,12 +673,10 @@ class ChatLLMModal extends Modal {
           
           this.uploadedFiles.push({ name: file.name, content: content });
           
-          const tag = fileList.createEl('span', { cls: 'chat-file-tag' });
-          (tag as HTMLElement).style.cssText = 'padding: 2px 10px; background: var(--background-secondary); border-radius: 12px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;';
+          const tag = fileList.createEl('span', { cls: 'mailer-chat-file-tag' });
           tag.textContent = `📄 ${file.name}`;
           
-          const removeBtn = tag.createEl('span', { text: '✕' });
-          (removeBtn as HTMLElement).style.cssText = 'cursor: pointer; font-size: 10px; opacity: 0.6;';
+          const removeBtn = tag.createEl('span', { cls: 'mailer-chat-file-remove', text: '✕' });
           removeBtn.addEventListener('click', () => {
             const idx = this.uploadedFiles.findIndex(f => f.name === file.name);
             if (idx > -1) {
@@ -790,18 +688,16 @@ class ChatLLMModal extends Modal {
           
           this.updateInfoBar(infoBar);
           new Notice(`✅ Загружен: ${file.name}`);
-        } catch (error) {
-          new Notice(`❌ Ошибка загрузки ${file.name}: ${(error as Error).message}`);
+        } catch (error: unknown) {
+          new Notice(`❌ Ошибка загрузки ${file.name}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       fileInput.value = '';
     });
 
-    const inputContainer = contentEl.createDiv({ cls: 'chat-input-container' });
-    (inputContainer as HTMLElement).style.cssText = 'display: flex; gap: 8px; flex-shrink: 0;';
+    const inputContainer = contentEl.createDiv({ cls: 'mailer-chat-input-container' });
     
-    this.inputArea = inputContainer.createEl('textarea', { cls: 'chat-input' });
-    (this.inputArea as HTMLTextAreaElement).style.cssText = 'flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-family: inherit; font-size: 14px; resize: none; min-height: 50px; max-height: 100px;';
+    this.inputArea = inputContainer.createEl('textarea', { cls: 'mailer-chat-input' });
     this.inputArea.placeholder = 'Введите вопрос... (Shift+Enter для переноса, Enter для отправки)';
     this.inputArea.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -810,15 +706,14 @@ class ChatLLMModal extends Modal {
       }
     });
     
-    const sendBtn = inputContainer.createEl('button', { cls: 'chat-btn chat-btn-send' });
+    const sendBtn = inputContainer.createEl('button', { cls: 'mailer-btn-send' });
     sendBtn.textContent = '✉️ Отправить';
-    (sendBtn as HTMLButtonElement).style.cssText = 'padding: 10px 20px; border: none; border-radius: 8px; background: var(--interactive-accent); color: white; cursor: pointer; font-weight: bold; font-size: 14px;';
     sendBtn.addEventListener('click', () => this.sendMessage());
   }
 
   updateInfoBar(infoBar?: HTMLElement) {
     const stats = this.plugin.db.getStats();
-    const bar = infoBar || this.contentEl.querySelector('.chat-info');
+    const bar = infoBar || this.contentEl.querySelector('.mailer-chat-info');
     if (bar) {
       bar.textContent = `📊 База знаний: ${stats.emails} писем | Направлений: ${stats.directions} | Загруженных файлов: ${this.uploadedFiles.length}`;
     }
@@ -868,9 +763,9 @@ class ChatLLMModal extends Modal {
       this.lastAnswer = answer;
       this.addMessage('assistant', answer);
       
-    } catch (error) {
-      new Notice(`❌ Ошибка: ${(error as Error).message}`);
-      this.addMessage('assistant', `❌ Извините, произошла ошибка: ${(error as Error).message}`);
+    } catch (error: unknown) {
+      new Notice(`❌ Ошибка: ${error instanceof Error ? error.message : String(error)}`);
+      this.addMessage('assistant', `❌ Извините, произошла ошибка: ${error instanceof Error ? error.message : String(error)}`);
     }
     
     this.isProcessing = false;
@@ -880,26 +775,12 @@ class ChatLLMModal extends Modal {
     this.messages.push({ role, content });
     if (!this.chatContainer) return;
     
-    const msgEl = this.chatContainer.createDiv({ cls: `chat-message chat-message-${role}` });
-    (msgEl as HTMLElement).style.cssText = `
-      padding: 12px 16px;
-      margin-bottom: 8px;
-      background: ${role === 'user' ? 'var(--background-primary)' : 'var(--background-secondary)'};
-      border-radius: 8px;
-      border-left: 3px solid ${role === 'user' ? 'var(--text-accent)' : 'var(--interactive-accent)'};
-      white-space: pre-wrap;
-      word-wrap: break-word;
-      max-width: 90%;
-      ${role === 'user' ? 'margin-left: auto;' : ''}
-      font-size: 14px;
-      line-height: 1.6;
-    `;
+    const msgEl = this.chatContainer.createDiv({ cls: `mailer-chat-message mailer-chat-message-${role}` });
     
-    const label = msgEl.createEl('div', { cls: 'chat-message-label' });
-    (label as HTMLElement).style.cssText = 'font-size: 11px; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;';
+    const label = msgEl.createEl('div', { cls: 'mailer-chat-label' });
     label.textContent = role === 'user' ? '👤 Вы' : '🤖 AI помощник';
     
-    const textEl = msgEl.createEl('div', { cls: 'chat-message-text' });
+    const textEl = msgEl.createEl('div', { cls: 'mailer-chat-message-text' });
     textEl.textContent = content;
     
     this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
@@ -954,8 +835,8 @@ class ImportModal extends Modal {
   plugin: MailerPlugin;
   onUpdate: () => void;
 
-  private importedData: any = null;
-  private fileDirections: any[] = [];
+  private importedData: DbData | null = null;
+  private fileDirections: Direction[] = [];
   private mapping: Map<number, number> = new Map(); // fileDirId -> targetDirId
   private selectedFilePath: string = '';
 
@@ -968,23 +849,19 @@ class ImportModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    (contentEl as HTMLElement).style.cssText = 'max-width: 700px; margin: 0 auto; padding: 20px;';
+    contentEl.addClass('mailer-import-modal');
 
     contentEl.createEl('h2', { text: '📥 Импорт писем из JSON' });
     contentEl.createEl('p', { text: 'Выберите JSON-файл с письмами для импорта в локальную базу', cls: 'mailer-modal-desc' });
 
-    const fileGroup = contentEl.createDiv({ cls: 'import-file-group' });
-    (fileGroup as HTMLElement).style.cssText = 'display: flex; gap: 10px; align-items: center; margin-bottom: 16px;';
+    const fileGroup = contentEl.createDiv({ cls: 'mailer-import-file-group' });
 
-    const fileBtn = fileGroup.createEl('button', { cls: 'mailer-btn' });
+    const fileBtn = fileGroup.createEl('button', { cls: 'mailer-btn-file' });
     fileBtn.textContent = '📂 Выбрать файл';
-    (fileBtn as HTMLButtonElement).style.cssText = 'padding: 8px 16px; border: none; border-radius: 4px; background: var(--interactive-accent); color: white; cursor: pointer; font-weight: bold;';
 
-    const fileLabel = fileGroup.createEl('span', { cls: 'import-file-label' });
-    (fileLabel as HTMLElement).style.cssText = 'font-size: 13px; color: var(--text-muted);';
+    const fileLabel = fileGroup.createEl('span', { cls: 'mailer-import-file-label' });
 
-    const fileInput = fileGroup.createEl('input', { type: 'file', attr: { accept: '.json' } });
-    (fileInput as HTMLInputElement).style.cssText = 'display: none;';
+    const fileInput = fileGroup.createEl('input', { type: 'file', attr: { accept: '.json' }, cls: 'mailer-form-hidden' });
 
     fileBtn.addEventListener('click', () => fileInput.click());
 
@@ -1009,8 +886,8 @@ class ImportModal extends Modal {
         this.fileDirections = data.directions && Array.isArray(data.directions) ? data.directions : [];
 
         this.renderMappingStep(contentEl, fileInput);
-      } catch (err) {
-        new Notice(`❌ Ошибка парсинга JSON: ${(err as Error).message}`);
+      } catch (err: unknown) {
+        new Notice(`❌ Ошибка парсинга JSON: ${err instanceof Error ? err.message : String(err)}`);
       }
     });
 
@@ -1026,35 +903,29 @@ class ImportModal extends Modal {
     const existingContent = contentEl.querySelector('.import-content');
     if (existingContent) existingContent.remove();
 
-    const contentDiv = contentEl.createDiv({ cls: 'import-content' });
-    (contentDiv as HTMLElement).style.cssText = 'margin-top: 8px;';
+    const contentDiv = contentEl.createDiv({ cls: 'mailer-import-content' });
 
+    if (!this.importedData) return;
     const totalEmails = this.importedData.emails.length;
     const totalDirs = this.fileDirections.length;
 
-    const summary = contentDiv.createEl('div', { cls: 'import-summary' });
-    (summary as HTMLElement).style.cssText = 'padding: 10px; background: var(--background-secondary); border-radius: 4px; margin-bottom: 14px;';
+    const summary = contentDiv.createEl('div', { cls: 'mailer-import-summary' });
     summary.createEl('p', { text: `📊 Найдено в файле: ${totalEmails} писем, ${totalDirs} направлений` });
 
     if (totalDirs > 0) {
       contentDiv.createEl('h3', { text: '🔄 Настройка соответствия направлений' });
       contentDiv.createEl('p', { text: 'Для каждого направления из файла укажите, куда его отобразить:', cls: 'mailer-modal-desc' });
-      (contentDiv.querySelector('.mailer-modal-desc') as HTMLElement).style.cssText = 'font-size: 12px; color: var(--text-muted); margin-bottom: 10px;';
 
       const dbDirections = this.plugin.db.getDirections();
 
-      this.fileDirections.forEach((fileDir: any) => {
-        const row = contentDiv.createEl('div', { cls: 'import-mapping-row' });
-        (row as HTMLElement).style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 6px 8px; margin-bottom: 4px; background: var(--background-primary); border-radius: 4px; border: 1px solid var(--background-modifier-border);';
+      this.fileDirections.forEach((fileDir: Direction) => {
+        const row = contentDiv.createEl('div', { cls: 'mailer-import-mapping-row' });
 
-        row.createEl('span', { text: `📂 ${fileDir.name}` });
-        (row.lastChild as HTMLElement).style.cssText = 'min-width: 140px; font-weight: bold; font-size: 13px;';
+        row.createEl('span', { cls: 'mailer-import-mapping-name', text: `📂 ${fileDir.name}` });
 
-        const arrow = row.createEl('span', { text: '→' });
-        (arrow as HTMLElement).style.cssText = 'color: var(--text-muted); font-size: 14px;';
+        const arrow = row.createEl('span', { cls: 'mailer-import-mapping-arrow', text: '→' });
 
-        const select = row.createEl('select', { cls: 'import-mapping-select' });
-        (select as HTMLSelectElement).style.cssText = 'flex: 1; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); font-size: 13px; cursor: pointer;';
+        const select = row.createEl('select', { cls: 'mailer-import-mapping-select' });
 
         const createOpt = select.createEl('option', { value: `create:${fileDir.name}` });
         createOpt.textContent = `✨ Создать новое: "${fileDir.name}"`;
@@ -1062,7 +933,7 @@ class ImportModal extends Modal {
         if (dbDirections.length > 0) {
           const separator = select.createEl('option', { value: '', attr: { disabled: 'true' } });
           separator.textContent = '── Существующие ──';
-          dbDirections.forEach((dbDir: any) => {
+          dbDirections.forEach((dbDir: Direction) => {
             const opt = select.createEl('option', { value: String(dbDir.id) });
             opt.textContent = `📂 ${dbDir.name}`;
           });
@@ -1085,17 +956,14 @@ class ImportModal extends Modal {
       contentDiv.createEl('p', { text: 'ℹ️ В файле нет направлений — все письма будут импортированы без направления.', cls: 'mailer-modal-desc' });
     }
 
-    const btnGroup = contentDiv.createEl('div', { cls: 'import-buttons' });
-    (btnGroup as HTMLElement).style.cssText = 'display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end;';
+    const btnGroup = contentDiv.createEl('div', { cls: 'mailer-import-buttons' });
 
-    const cancelBtn = btnGroup.createEl('button', { cls: 'mailer-btn' });
+    const cancelBtn = btnGroup.createEl('button', { cls: 'mailer-btn-default' });
     cancelBtn.textContent = '✕ Отмена';
-    (cancelBtn as HTMLButtonElement).style.cssText = 'padding: 10px 24px; border: none; border-radius: 4px; background: var(--background-secondary); color: var(--text-normal); cursor: pointer; font-size: 14px;';
     cancelBtn.addEventListener('click', () => this.close());
 
-    const importBtn = btnGroup.createEl('button', { cls: 'mailer-btn mailer-btn-success' });
+    const importBtn = btnGroup.createEl('button', { cls: 'mailer-btn-primary' });
     importBtn.textContent = '📥 Запустить импорт';
-    (importBtn as HTMLButtonElement).style.cssText = 'padding: 10px 24px; border: none; border-radius: 4px; background: var(--interactive-accent); color: white; cursor: pointer; font-size: 14px; font-weight: bold;';
     importBtn.addEventListener('click', async () => {
       await this.executeImport();
     });
@@ -1122,6 +990,7 @@ class ImportModal extends Modal {
 
   private async executeImport() {
     try {
+      if (!this.importedData) return;
       let created = 0;
       const dirNameToId: Map<string, number> = new Map();
 
@@ -1148,7 +1017,7 @@ class ImportModal extends Modal {
         let targetDirId = 0;
 
         if (fileDirId > 0) {
-          const fileDir = this.fileDirections.find((d: any) => d.id === fileDirId);
+          const fileDir = this.fileDirections.find((d: Direction) => d.id === fileDirId);
           if (fileDir && dirNameToId.has(fileDir.name)) {
             targetDirId = dirNameToId.get(fileDir.name) || 0;
           } else {
@@ -1181,8 +1050,8 @@ class ImportModal extends Modal {
       this.close();
       new Notice(`✅ Импорт завершён!\n📧 Импортировано: ${imported}\n📂 Создано направлений: ${created}${skipped > 0 ? `\n⏭ Пропущено: ${skipped}` : ''}`);
       this.onUpdate();
-    } catch (error) {
-      new Notice(`❌ Ошибка импорта: ${(error as Error).message}`);
+    } catch (error: unknown) {
+      new Notice(`❌ Ошибка импорта: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -1206,35 +1075,29 @@ class ExportModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    (contentEl as HTMLElement).style.cssText = 'max-width: 550px; margin: 0 auto; padding: 20px;';
+    contentEl.addClass('mailer-export-modal');
 
     contentEl.createEl('h2', { text: '📤 Экспорт писем в JSON' });
     contentEl.createEl('p', { text: 'Выберите одно или несколько направлений для экспорта', cls: 'mailer-modal-desc' });
 
     const directions = this.plugin.db.getDirections();
     const checkboxes: HTMLInputElement[] = [];
-    const selectionInfo = contentEl.createEl('div');
-    (selectionInfo as HTMLElement).style.cssText = 'font-size: 12px; color: var(--text-muted); margin-bottom: 10px;';
+    const selectionInfo = contentEl.createEl('div', { cls: 'mailer-export-info' });
 
     if (directions.length === 0) {
       contentEl.createEl('p', { text: '📭 Нет созданных направлений. Сначала создайте направления в разделе "Направления".' });
-      const closeBtn = contentEl.createEl('button', { cls: 'mailer-btn' });
+      const closeBtn = contentEl.createEl('button', { cls: 'mailer-btn-danger-sm' });
       closeBtn.textContent = '✕ Закрыть';
-      (closeBtn as HTMLButtonElement).style.cssText = 'padding: 10px 24px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer; font-size: 14px; margin-top: 16px;';
       closeBtn.addEventListener('click', () => this.close());
       return;
     }
 
-    const listContainer = contentEl.createDiv({ cls: 'export-dir-list' });
-    (listContainer as HTMLElement).style.cssText = 'max-height: 300px; overflow-y: auto; margin-bottom: 14px; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 4px;';
+    const listContainer = contentEl.createDiv({ cls: 'mailer-export-dir-list' });
 
     // Select all / deselect all
-    const selectAllRow = listContainer.createEl('div', { cls: 'export-dir-row' });
-    (selectAllRow as HTMLElement).style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--background-modifier-border); cursor: pointer;';
-    const selectAllCheckbox = selectAllRow.createEl('input', { type: 'checkbox', attr: { id: 'export-select-all' } });
-    (selectAllCheckbox as HTMLInputElement).style.cssText = 'cursor: pointer;';
+    const selectAllRow = listContainer.createEl('div', { cls: 'mailer-export-dir-row' });
+    const selectAllCheckbox = selectAllRow.createEl('input', { type: 'checkbox', cls: 'mailer-export-dir-checkbox', attr: { id: 'export-select-all' } });
     selectAllRow.createEl('label', { text: 'Выбрать все', attr: { for: 'export-select-all' } });
-    (selectAllRow.lastChild as HTMLElement).style.cssText = 'cursor: pointer; font-size: 13px; font-weight: bold;';
 
     const updateSelectionInfo = () => {
       const selected = checkboxes.filter(cb => cb.checked).length;
@@ -1247,17 +1110,14 @@ class ExportModal extends Modal {
       updateSelectionInfo();
     });
 
-    directions.forEach((dir: any) => {
-      const row = listContainer.createEl('div', { cls: 'export-dir-row' });
-      (row as HTMLElement).style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--background-modifier-border); cursor: pointer;';
+    directions.forEach((dir: Direction) => {
+      const row = listContainer.createEl('div', { cls: 'mailer-export-dir-row' });
 
-      const cb = row.createEl('input', { type: 'checkbox', attr: { id: `export-dir-${dir.id}` } });
-      (cb as HTMLInputElement).style.cssText = 'cursor: pointer;';
+      const cb = row.createEl('input', { type: 'checkbox', cls: 'mailer-export-dir-checkbox', attr: { id: `export-dir-${dir.id}` } });
       checkboxes.push(cb);
 
-      const emailsCount = this.plugin.db.getAllEmails().filter((e: any) => e.direction_id === dir.id).length;
+      const emailsCount = this.plugin.db.getAllEmails().filter((e: Email) => e.direction_id === dir.id).length;
       row.createEl('label', { text: `📂 ${dir.name} (${emailsCount} писем)`, attr: { for: `export-dir-${dir.id}` } });
-      (row.lastChild as HTMLElement).style.cssText = 'cursor: pointer; font-size: 13px; flex: 1;';
 
       cb.addEventListener('change', () => {
         updateSelectionInfo();
@@ -1274,20 +1134,17 @@ class ExportModal extends Modal {
 
     updateSelectionInfo();
 
-    const btnGroup = contentEl.createEl('div', { cls: 'export-buttons' });
-    (btnGroup as HTMLElement).style.cssText = 'display: flex; gap: 10px; margin-top: 8px; justify-content: flex-end;';
+    const btnGroup = contentEl.createEl('div', { cls: 'mailer-export-buttons' });
 
-    const cancelBtn = btnGroup.createEl('button', { cls: 'mailer-btn' });
+    const cancelBtn = btnGroup.createEl('button', { cls: 'mailer-btn-default' });
     cancelBtn.textContent = '✕ Отмена';
-    (cancelBtn as HTMLButtonElement).style.cssText = 'padding: 10px 24px; border: none; border-radius: 4px; background: var(--background-secondary); color: var(--text-normal); cursor: pointer; font-size: 14px;';
     cancelBtn.addEventListener('click', () => this.close());
 
-    const exportBtn = btnGroup.createEl('button', { cls: 'mailer-btn mailer-btn-success' });
+    const exportBtn = btnGroup.createEl('button', { cls: 'mailer-btn-primary' });
     exportBtn.textContent = '📤 Экспортировать';
-    (exportBtn as HTMLButtonElement).style.cssText = 'padding: 10px 24px; border: none; border-radius: 4px; background: var(--interactive-accent); color: white; cursor: pointer; font-size: 14px; font-weight: bold;';
     exportBtn.addEventListener('click', async () => {
       const selectedIds: number[] = [];
-      directions.forEach((dir: any, idx: number) => {
+      directions.forEach((dir: Direction, idx: number) => {
         if (checkboxes[idx].checked) {
           selectedIds.push(dir.id);
         }
@@ -1327,8 +1184,8 @@ class ExportModal extends Modal {
 
       new Notice(`✅ Экспорт завершён!\n📧 Экспортировано: ${totalEmails} писем\n📂 Направлений: ${totalDirs}\n💾 Файл: ${fileName}`);
       this.onUpdate();
-    } catch (error) {
-      new Notice(`❌ Ошибка экспорта: ${(error as Error).message}`);
+    } catch (error: unknown) {
+      new Notice(`❌ Ошибка экспорта: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -1347,7 +1204,7 @@ export class EmailsView extends ItemView {
   plugin: MailerPlugin;
   container: HTMLElement | null = null;
   emailList: HTMLElement | null = null;
-  selectedEmail: any = null;
+  selectedEmail: Email | null = null;
   lastLLMAnswer: string = '';
   lastLLMQuestion: string = '';
   searchInput: HTMLInputElement | null = null;
@@ -1374,7 +1231,6 @@ export class EmailsView extends ItemView {
     this.container = this.containerEl;
     this.container.empty();
     this.container.addClass('mailer-view');
-    (this.container as HTMLElement).style.cssText = 'padding: 12px; height: 100%; overflow: hidden; display: flex; flex-direction: column;';
     
     this.render();
     this.loadEmailsFromLocal();
@@ -1383,26 +1239,23 @@ export class EmailsView extends ItemView {
   render() {
     if (!this.container) return;
     
-    const header = this.container.createEl('div', { cls: 'mailer-header' });
-    (header as HTMLElement).style.cssText = 'flex-shrink: 0;';
+    const header = this.container.createEl('div', { cls: 'mailer-view-header' });
     header.createEl('h2', { text: '📧 Технические письма' });
     
     // ===== ПОИСКОВАЯ СТРОКА =====
     const searchContainer = this.container.createEl('div', { cls: 'mailer-search-container' });
-    (searchContainer as HTMLElement).style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px; flex-shrink: 0; align-items: center;';
     
     this.searchInput = searchContainer.createEl('input', {
       type: 'text',
+      cls: 'mailer-search-input',
       placeholder: '🔍 Поиск по письмам (тема, текст, номер, автор)...'
     });
-    (this.searchInput as HTMLInputElement).style.cssText = 'flex: 1; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-size: 14px;';
     this.searchInput.addEventListener('input', () => {
       this.loadEmailsFromLocal();
     });
     
-    const clearSearchBtn = searchContainer.createEl('button', { cls: 'mailer-btn' });
+    const clearSearchBtn = searchContainer.createEl('button', { cls: 'mailer-btn-xs' });
     clearSearchBtn.textContent = '✕';
-    (clearSearchBtn as HTMLButtonElement).style.cssText = 'padding: 4px 12px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer; font-size: 16px; line-height: 1;';
     clearSearchBtn.addEventListener('click', () => {
       if (this.searchInput) {
         this.searchInput.value = '';
@@ -1412,54 +1265,43 @@ export class EmailsView extends ItemView {
     });
     
     const resultCounter = searchContainer.createEl('span', { cls: 'mailer-search-count' });
-    (resultCounter as HTMLElement).style.cssText = 'font-size: 12px; color: var(--text-muted); white-space: nowrap; min-width: 60px; text-align: right;';
     resultCounter.textContent = '';
     
-    const toolbar = this.container.createEl('div', { cls: 'mailer-toolbar' });
-    (toolbar as HTMLElement).style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; flex-shrink: 0;';
+    const toolbar = this.container.createEl('div', { cls: 'mailer-view-toolbar' });
     
-    const refreshBtn = toolbar.createEl('button', { cls: 'mailer-btn' });
+    const refreshBtn = toolbar.createEl('button', { cls: 'mailer-btn-sm' });
     refreshBtn.textContent = '🔄 Обновить';
-    (refreshBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer;';
     refreshBtn.addEventListener('click', () => this.loadEmailsFromLocal());
     
-    const newBtn = toolbar.createEl('button', { cls: 'mailer-btn mailer-btn-primary' });
+    const newBtn = toolbar.createEl('button', { cls: 'mailer-btn-sm-primary' });
     newBtn.textContent = '➕ Новое письмо';
-    (newBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--interactive-accent); color: white; cursor: pointer; font-weight: bold;';
     newBtn.addEventListener('click', () => this.openCreateModal());
     
-    const dirBtn = toolbar.createEl('button', { cls: 'mailer-btn' });
+    const dirBtn = toolbar.createEl('button', { cls: 'mailer-btn-sm' });
     dirBtn.textContent = '📂 Направления';
-    (dirBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer;';
     dirBtn.addEventListener('click', () => this.openDirectionsManager());
     
-    const syncBtn = toolbar.createEl('button', { cls: 'mailer-btn mailer-btn-success' });
+    const syncBtn = toolbar.createEl('button', { cls: 'mailer-btn-sm' });
     syncBtn.textContent = '🔄 Синхронизировать';
-    (syncBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--interactive-accent); color: white; cursor: pointer;';
     syncBtn.addEventListener('click', () => this.syncWithCloud());
     
-    const exportBtn = toolbar.createEl('button', { cls: 'mailer-btn' });
+    const exportBtn = toolbar.createEl('button', { cls: 'mailer-btn-sm' });
     exportBtn.textContent = '📄 Экспорт в Word';
-    (exportBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer;';
     exportBtn.addEventListener('click', () => this.exportToWord());
     
-    const importBtn = toolbar.createEl('button', { cls: 'mailer-btn' });
+    const importBtn = toolbar.createEl('button', { cls: 'mailer-btn-sm' });
     importBtn.textContent = '📥 Импорт';
-    (importBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer;';
     importBtn.addEventListener('click', () => this.openImportModal());
 
-    const exportJsonBtn = toolbar.createEl('button', { cls: 'mailer-btn' });
+    const exportJsonBtn = toolbar.createEl('button', { cls: 'mailer-btn-sm' });
     exportJsonBtn.textContent = '📤 Экспорт JSON';
-    (exportJsonBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer;';
     exportJsonBtn.addEventListener('click', () => this.openExportModal());
 
-    const chatBtn = toolbar.createEl('button', { cls: 'mailer-btn mailer-btn-llm' });
+    const chatBtn = toolbar.createEl('button', { cls: 'mailer-btn-sm' });
     chatBtn.textContent = '💬 Чат с AI';
-    (chatBtn as HTMLButtonElement).style.cssText = 'padding: 6px 14px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer;';
     chatBtn.addEventListener('click', () => this.openChatModal());
     
     this.emailList = this.container.createEl('div', { cls: 'mailer-email-list' });
-    (this.emailList as HTMLElement).style.cssText = 'flex: 1; overflow: hidden; min-height: 0;';
   }
 
   openChatModal() {
@@ -1530,7 +1372,7 @@ export class EmailsView extends ItemView {
   }
 
   // ===== СИНХРОНИЗАЦИЯ ПИСЬМА С MD ФАЙЛОМ =====
-  async syncEmailToMd(email: any): Promise<void> {
+  async syncEmailToMd(email: Email): Promise<void> {
     try {
       const folderPath = 'Технические письма';
       const adapter = this.app.vault.adapter;
@@ -1559,7 +1401,7 @@ export class EmailsView extends ItemView {
       email.lastSyncTime = new Date().toISOString();
       this.plugin.db.saveEmail(email);
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('❌ Ошибка синхронизации с MD:', error);
     }
   }
@@ -1576,7 +1418,7 @@ export class EmailsView extends ItemView {
   }
 
   // 🔥 ФОРМАТИРОВАНИЕ MD С СОХРАНЕНИЕМ ПЕРЕНОСОВ
-  formatEmailAsMd(email: any): string {
+  formatEmailAsMd(email: Email): string {
     const date = email.date ? new Date(email.date).toLocaleDateString('ru-RU') : 'Дата не указана';
     
     let textContent = email.text || 'Текст отсутствует';
@@ -1622,7 +1464,6 @@ ${textContent}
     this.emailList.empty();
     
     const scrollContainer = this.emailList.createEl('div', { cls: 'mailer-email-scroll' });
-    (scrollContainer as HTMLElement).style.cssText = 'height: 100%; overflow-y: auto; padding-right: 4px;';
     
     let emails = this.plugin.db.getAllEmails();
     const directions = this.plugin.db.getDirections();
@@ -1632,7 +1473,7 @@ ${textContent}
     let filteredEmails = emails;
     
     if (query) {
-      filteredEmails = emails.filter((email: any) => {
+      filteredEmails = emails.filter((email: Email) => {
         const searchableText = [
           email.subject || '',
           email.text || '',
@@ -1655,19 +1496,18 @@ ${textContent}
     }
     
     if (!filteredEmails || filteredEmails.length === 0) {
-      const emptyEl = scrollContainer.createEl('p', { text: query ? '📭 Ничего не найдено' : '📭 Нет писем в локальном хранилище' });
-      (emptyEl as HTMLElement).style.cssText = 'color: var(--text-muted); text-align: center; padding: 20px;';
+      const emptyEl = scrollContainer.createEl('p', { cls: 'mailer-empty-text', text: query ? '📭 Ничего не найдено' : '📭 Нет писем в локальном хранилище' });
       return;
     }
     
     const dirMap = new Map<number, string>();
-    directions.forEach((d: any) => dirMap.set(d.id, d.name));
+    directions.forEach((d: Direction) => dirMap.set(d.id, d.name));
     
-    const grouped: { [key: string]: any[] } = {
+    const grouped: { [key: string]: Email[] } = {
       'Без направления': []
     };
     
-    filteredEmails.forEach((email: any) => {
+    filteredEmails.forEach((email: Email) => {
       const dirId = email.direction_id || 0;
       const dirName = dirMap.get(dirId) || 'Без направления';
       if (!grouped[dirName]) {
@@ -1687,42 +1527,16 @@ ${textContent}
       if (dirEmails.length === 0) continue;
       
       const groupContainer = scrollContainer.createEl('div', { cls: 'mailer-group-container' });
-      (groupContainer as HTMLElement).style.cssText = 'margin-bottom: 4px;';
       
       const groupHeader = groupContainer.createEl('div', { cls: 'mailer-group-header' });
-      (groupHeader as HTMLElement).style.cssText = `
-        padding: 8px 12px;
-        background: var(--background-secondary);
-        font-weight: bold;
-        font-size: 0.9em;
-        margin-top: 4px;
-        border-radius: 4px;
-        cursor: pointer;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        user-select: none;
-        transition: background 0.15s;
-        position: sticky;
-        top: 0;
-        z-index: 5;
-      `;
-      groupHeader.addEventListener('mouseenter', () => {
-        (groupHeader as HTMLElement).style.background = 'var(--background-modifier-hover)';
-      });
-      groupHeader.addEventListener('mouseleave', () => {
-        (groupHeader as HTMLElement).style.background = 'var(--background-secondary)';
-      });
       
       const titleSpan = groupHeader.createEl('span');
       titleSpan.textContent = `📂 ${dirName} (${dirEmails.length})`;
       
-      const arrowSpan = groupHeader.createEl('span');
+      const arrowSpan = groupHeader.createEl('span', { cls: 'mailer-group-arrow' });
       arrowSpan.textContent = '▶';
-      (arrowSpan as HTMLElement).style.cssText = 'font-size: 12px; transition: transform 0.2s;';
       
       const emailsContainer = groupContainer.createEl('div', { cls: 'mailer-group-emails' });
-      (emailsContainer as HTMLElement).style.cssText = 'overflow: hidden; transition: max-height 0.3s ease;';
       
       let isExpanded = false;
       const maxHeight = dirEmails.length * 100 + 20;
@@ -1730,39 +1544,20 @@ ${textContent}
       (emailsContainer as HTMLElement).style.maxHeight = '0px';
       (emailsContainer as HTMLElement).style.opacity = '0';
       
-      dirEmails.forEach((email: any) => {
+      dirEmails.forEach((email: Email) => {
         const card = emailsContainer.createEl('div', { cls: 'mailer-email-card', attr: { 'data-id': String(email.id) } });
-        (card as HTMLElement).style.cssText = `
-          padding: 10px 14px;
-          margin: 4px 0 4px 12px;
-          background: var(--background-primary);
-          border-radius: 4px;
-          cursor: pointer;
-          border-left: 3px solid var(--interactive-accent);
-          transition: background 0.2s;
-        `;
-        
-        card.addEventListener('mouseenter', () => {
-          (card as HTMLElement).style.background = 'var(--background-secondary)';
-        });
-        card.addEventListener('mouseleave', () => {
-          (card as HTMLElement).style.background = 'var(--background-primary)';
-        });
         
         const statusIcon = email.sync_status === 'synced' ? '☁️' : '📝';
         const subjectEl = card.createEl('div', { cls: 'mailer-email-subject', text: `${statusIcon} ${email.subject || 'Без темы'}` });
-        (subjectEl as HTMLElement).style.fontWeight = 'bold';
         
         card.createEl('div', { cls: 'mailer-email-meta', text: `№ ${email.number || '-'} | ${email.author || 'Неизвестный'} | ${email.date || ''}` });
         card.createEl('div', { cls: 'mailer-email-preview', text: (email.text || '').substring(0, 120) + '...' });
         
         // КНОПКА РЕДАКТИРОВАНИЯ
         const actionsRow = card.createEl('div', { cls: 'mailer-email-actions' });
-        (actionsRow as HTMLElement).style.cssText = 'display: flex; gap: 4px; margin-top: 4px;';
         
         const editBtn = actionsRow.createEl('button', { cls: 'mailer-btn-edit' });
         editBtn.textContent = '✏️ Редактировать';
-        (editBtn as HTMLButtonElement).style.cssText = 'padding: 2px 10px; border: none; border-radius: 4px; background: var(--background-secondary); cursor: pointer; font-size: 11px;';
         editBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           this.openEditModal(email);
@@ -1791,7 +1586,7 @@ ${textContent}
     }
   }
 
-  openEditModal(email: any) {
+  openEditModal(email: Email) {
     const modal = new EditEmailModal(
       this.plugin,
       email,
@@ -1815,7 +1610,7 @@ ${textContent}
     modal.open();
   }
 
-  async openEmailAsMd(email: any) {
+  async openEmailAsMd(email: Email) {
     try {
       const folderPath = 'Технические письма';
       const adapter = this.app.vault.adapter;
@@ -1847,13 +1642,13 @@ ${textContent}
       
       new Notice(`📄 Открыто: ${fileName}`);
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Ошибка открытия письма:', error);
-      new Notice(`❌ Ошибка открытия: ${(error as Error).message}`);
+      new Notice(`❌ Ошибка открытия: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  selectEmail(email: any) {
+  selectEmail(email: Email) {
     this.selectedEmail = email;
     new Notice(`📧 Выбрано: ${email.subject}`);
     console.log('📧 Выбрано письмо:', email);
@@ -1876,8 +1671,8 @@ ${textContent}
         freshEmail,
         this.plugin.settings
       );
-    } catch (error) {
-      new Notice(`❌ Ошибка экспорта: ${(error as Error).message}`);
+    } catch (error: unknown) {
+      new Notice(`❌ Ошибка экспорта: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
