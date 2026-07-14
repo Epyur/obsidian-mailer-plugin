@@ -1,0 +1,10 @@
+{
+  "id": "technical-mailer",
+  "name": "Technical assistence in mail writing",
+  "version": "1.0.0",
+  "minAppVersion": "1.11.4",
+  "description": "Помощник для работы с техническими письмами TECHNONICOL.",
+  "author": "Полищук Евгений",
+  "authorUrl": "",
+  "isDesktopOnly": true
+}
