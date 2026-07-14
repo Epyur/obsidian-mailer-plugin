@@ -170,7 +170,7 @@ src/
 | 5 | STYLING | Инлайн-стили → CSS классы | `main.ts`, `emails.view.ts`, `styles.css` | ✅ |
 | 6 | TYPING | `any` → конкретные интерфейсы | все `.ts` | ✅ |
 | 7 | TYPING | `catch(e)` → `catch(e: unknown)` + `instanceof Error` | все `.ts` | ✅ |
-| 8 | TYPING | Убрать избыточные `as`-assertions | все `.ts` | ✅ |
+| 8 | TYPING | Убрать избыточные `as`-assertions (кроме необходимых `as Type` для `JSON.parse()` и `window.app`) | все `.ts` | ✅ |
 | 9 | ASYNC | `void` + `.catch()` для Promise | `main.ts`, `db.ts`, `emails.view.ts` | ✅ |
 | 10 | OBSIDIAN API | `setTimeout` → `window.setTimeout` | `emails.view.ts` | ✅ |
 | 11 | OBSIDIAN API | `fetch` → `requestUrl` | `sync.service.ts` | ✅ |

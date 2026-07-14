@@ -257,7 +257,7 @@ ${userQuestion}
         throw new Error(`HTTP ${response.status}: ${response.text}`);
       }
 
-      const data: LLMResponse = JSON.parse(response.text);
+      const data: LLMResponse = JSON.parse(response.text) as LLMResponse;
       const answer = data.choices?.[0]?.message?.content || 'Нет ответа от LLM';
 
       console.log(`✅ Ответ получен, длина: ${answer.length} символов`);
@@ -373,7 +373,7 @@ ${userQuestion}
         throw new Error(`HTTP ${response.status}: ${response.text}`);
       }
 
-      const data: LLMResponse = JSON.parse(response.text);
+      const data: LLMResponse = JSON.parse(response.text) as LLMResponse;
       const answer = data.choices?.[0]?.message?.content || 'Нет ответа от LLM';
 
       console.log(`✅ Ответ получен, длина: ${answer.length} символов`);
@@ -433,7 +433,7 @@ ${cleanText}
         throw new Error(`HTTP ${response.status}: ${response.text}`);
       }
 
-      const data: LLMResponse = JSON.parse(response.text);
+      const data: LLMResponse = JSON.parse(response.text) as LLMResponse;
       return data.choices?.[0]?.message?.content || 'Нет ответа от LLM';
     });
   }
@@ -477,7 +477,7 @@ ${cleanText}
         throw new Error(`HTTP ${response.status}: ${response.text}`);
       }
 
-      const data: LLMResponse = JSON.parse(response.text);
+      const data: LLMResponse = JSON.parse(response.text) as LLMResponse;
       return data.choices?.[0]?.message?.content || 'Нет ответа от LLM';
     });
   }

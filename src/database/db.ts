@@ -61,7 +61,7 @@ export class LocalDatabase {
       if (fileExists) {
         console.log('📂 Найден существующий файл:', this.dataPath);
         const content = await adapter.read(this.dataPath);
-        const parsedData = JSON.parse(content);
+        const parsedData: DbData = JSON.parse(content);
         
         // 🔥 ЗАЩИТА: убеждаемся, что все поля существуют
         this.data = {
@@ -94,7 +94,7 @@ export class LocalDatabase {
         const backupExists = await adapter.exists('mailer_data_backup.json');
         if (backupExists) {
           const backupContent = await adapter.read('mailer_data_backup.json');
-          const parsedBackup = JSON.parse(backupContent);
+          const parsedBackup: DbData = JSON.parse(backupContent);
           this.data = {
             emails: parsedBackup.emails || [],
             directions: parsedBackup.directions || [],

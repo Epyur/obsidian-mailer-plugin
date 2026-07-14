@@ -546,7 +546,7 @@ class DirectionsManagerModal extends Modal {
         }
         
         try {
-          const allData: DbData = JSON.parse(this.plugin.db.exportData());
+          const allData: DbData = JSON.parse(this.plugin.db.exportData()) as DbData;
           allData.directions = allData.directions.filter((d: Direction) => d.id !== dir.id);
           const success = await this.plugin.db.importData(JSON.stringify(allData));
           
@@ -729,12 +729,12 @@ class ChatLLMModal extends Modal {
     this.lastQuestion = question;
     this.addMessage('user', question);
     this.inputArea.value = '';
-    this.inputArea.style.height = 'auto';
+    this.inputArea.setCssStyles({ height: 'auto' });
     this.isProcessing = true;
     
     try {
       const allData = this.plugin.db.exportData();
-      const database = JSON.parse(allData);
+      const database: DbData = JSON.parse(allData) as DbData;
       
       let fileContext = '';
       if (this.uploadedFiles.length > 0) {
@@ -872,7 +872,7 @@ class ImportModal extends Modal {
 
       try {
         const raw = await file.text();
-        const data = JSON.parse(raw);
+        const data: DbData = JSON.parse(raw) as DbData;
 
         if (!data.emails || !Array.isArray(data.emails)) {
           new Notice('⚠️ В JSON не найден массив "emails"');
@@ -1160,7 +1160,7 @@ class ExportModal extends Modal {
   private async executeExport(directionIds: number[]) {
     try {
       const jsonContent = this.plugin.db.exportEmailsByDirection(directionIds);
-      const data = JSON.parse(jsonContent);
+      const data: DbData = JSON.parse(jsonContent) as DbData;
       const totalEmails = data.emails.length;
       const totalDirs = data.directions.length;
 

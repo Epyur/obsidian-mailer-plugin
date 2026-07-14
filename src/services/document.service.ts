@@ -36,8 +36,7 @@ export class DocumentService {
   private app: App;
 
   constructor() {
-    // @ts-ignore
-    this.app = window.app;
+    this.app = (window as unknown as Record<string, unknown>).app as App;
   }
   
   private sanitizeFileName(name: string): string {

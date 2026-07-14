@@ -100,13 +100,13 @@ export default class MailerPlugin extends Plugin {
         try {
           // Try get (alternative)
           // @ts-ignore
-          value = storage.get(secretName);
+          value = storage.get(secretName) as string;
           console.log('✅ Used get method');
         } catch {
           try {
             // Try direct property access
             // @ts-ignore
-            value = storage[secretName];
+            value = storage[secretName] as string;
             console.log('✅ Used property access');
           } catch {
             console.warn('⚠️ Could not retrieve secret');
@@ -278,7 +278,7 @@ export default class MailerPlugin extends Plugin {
   }
 
   async loadSettings() {
-    const savedData = await this.loadData();
+    const savedData: Record<string, unknown> = await this.loadData();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, savedData);
   }
 
