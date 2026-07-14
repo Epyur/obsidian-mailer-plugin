@@ -138,19 +138,6 @@ export class DocumentService {
     try {
       const { defaultAuthor, templatePath, placeholders } = settings;
       
-      let placeholderMap: Record<string, string> = {};
-      try {
-        placeholderMap = JSON.parse(placeholders ?? '{}');
-      } catch {
-        placeholderMap = {
-          '{{Номер}}': 'number',
-          '{{Тема}}': 'subject',
-          '{{Текст}}': 'text',
-          '{{Автор}}': 'author',
-          '{{Дата}}': 'date'
-        };
-      }
-      
       // Подготавливаем данные
       const emailDate = emailData.date ? new Date(emailData.date) : new Date();
       const formattedDate = emailDate.toLocaleDateString('ru-RU');
@@ -329,7 +316,7 @@ export class DocumentService {
             children.push(new ImageRun({
               data: new Uint8Array(imgBuffer),
               transformation: { width: Math.max(imgWidth, 50), height: Math.max(imgHeight, 50) },
-              type: imgPath.toLowerCase().endsWith('.png') ? 'png' as const : 'jpg' as const
+              type: imgPath.toLowerCase().endsWith('.png') ? 'png' : 'jpg'
             }));
           } catch (e: unknown) {
             console.warn('⚠️ Ошибка вставки изображения:', e);

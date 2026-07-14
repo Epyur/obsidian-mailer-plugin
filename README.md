@@ -1,4 +1,4 @@
-# Technical Assistant TECHNONICOL — Obsidian Mailer Plugin
+# Technical assistence in mail writing
 
 | 🇷🇺 Русский | 🇬🇧 English |
 |---|---|

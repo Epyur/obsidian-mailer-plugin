@@ -96,19 +96,19 @@ export default class MailerPlugin extends Plugin {
         // @ts-ignore
         value = storage.getSecret(secretName);
         console.log('✅ Used getSecret method');
-      } catch (_e: unknown) {
+      } catch {
         try {
           // Try get (alternative)
           // @ts-ignore
           value = storage.get(secretName);
           console.log('✅ Used get method');
-        } catch (_e2: unknown) {
+        } catch {
           try {
             // Try direct property access
             // @ts-ignore
             value = storage[secretName];
             console.log('✅ Used property access');
-          } catch (_e3: unknown) {
+          } catch {
             console.warn('⚠️ Could not retrieve secret');
           }
         }
@@ -155,12 +155,12 @@ export default class MailerPlugin extends Plugin {
         // @ts-ignore
         await storage.setSecret(secretName, value);
         console.log('✅ Used setSecret method');
-      } catch (_e: unknown) {
+      } catch {
         try {
           // @ts-ignore
           await storage.set(secretName, value);
           console.log('✅ Used set method');
-        } catch (_e2: unknown) {
+        } catch {
           // @ts-ignore
           storage[secretName] = value;
           console.log('✅ Used property assignment');
@@ -213,8 +213,8 @@ export default class MailerPlugin extends Plugin {
     this.addCommand({
       id: 'open-emails',
       name: '📧 Open emails',
-      callback: () => {
-        this.activateView(VIEW_TYPE_EMAILS);
+      callback: async () => {
+        await this.activateView(VIEW_TYPE_EMAILS);
       }
     });
 
@@ -236,12 +236,12 @@ export default class MailerPlugin extends Plugin {
       }
     });
 
-    this.addRibbonIcon('mail', '📧 Technical emails', () => {
-      this.activateView(VIEW_TYPE_EMAILS);
+    this.addRibbonIcon('mail', '📧 Technical emails', async () => {
+      await this.activateView(VIEW_TYPE_EMAILS);
     });
 
-    this.addRibbonIcon('sync', '🔄 Sync', () => {
-      this.syncService.syncWithCloud();
+    this.addRibbonIcon('sync', '🔄 Sync', async () => {
+      await this.syncService.syncWithCloud();
     });
 
     this.addSettingTab(new MailerSettingTab(this.app, this));

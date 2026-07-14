@@ -1,8 +1,7 @@
 // src/views/emails.view.ts
 import { ItemView, WorkspaceLeaf, Notice, TFile, Modal, App } from 'obsidian';
 import MailerPlugin from '../main';
-import { Email, Direction, DbData, Stats } from '../database/db';
-import { DatabaseData } from '../services/llm.service';
+import { Email, Direction, DbData } from '../database/db';
 
 export const VIEW_TYPE_EMAILS = 'mailer-emails-view';
 
@@ -22,7 +21,7 @@ class ResizableModal extends Modal {
     
     const modalEl = contentEl.parentElement;
     if (modalEl) {
-      (modalEl as HTMLElement).addClass('mailer-modal-resizable');
+      modalEl.addClass('mailer-modal-resizable');
     }
   }
 
@@ -48,13 +47,11 @@ class ResizableModal extends Modal {
     const modalEl = this.modalContent?.parentElement;
     if (!modalEl) return;
 
-    const modalElStyle = modalEl as HTMLElement;
-    
     if (!this.isFullscreen) {
-      this.previousWidth = modalElStyle.style.width || '';
-      this.previousHeight = modalElStyle.style.height || '';
+      this.previousWidth = modalEl.style.width || '';
+      this.previousHeight = modalEl.style.height || '';
       
-      modalElStyle.addClass('mailer-modal-fullscreen');
+      modalEl.addClass('mailer-modal-fullscreen');
       
       this.isFullscreen = true;
       
@@ -64,7 +61,7 @@ class ResizableModal extends Modal {
         btn.setAttribute('title', 'Вернуть обычный размер');
       }
     } else {
-      modalElStyle.removeClass('mailer-modal-fullscreen');
+      modalEl.removeClass('mailer-modal-fullscreen');
       
       this.isFullscreen = false;
       
@@ -105,7 +102,7 @@ class CreateEmailModal extends ResizableModal {
 
     const headerContainer = contentEl.createDiv({ cls: 'mailer-modal-header' });
     
-    const titleEl = headerContainer.createEl('h2', { text: '📝 Новое письмо' });
+    headerContainer.createEl('h2', { text: '📝 Новое письмо' });
     
     this.addFullscreenButton(headerContainer);
     
@@ -217,7 +214,7 @@ class CreateEmailModal extends ResizableModal {
 
     this.setupResizeHandle(contentEl);
 
-    setTimeout(() => subjectInput.focus(), 100);
+    window.setTimeout(() => subjectInput.focus(), 100);
   }
 
   renderImageTag(container: HTMLElement, fileName: string, index: number) {
@@ -225,11 +222,11 @@ class CreateEmailModal extends ResizableModal {
     tag.textContent = `🖼️ {IMG_${index}} ${fileName.substring(0, 20)}`;
 
     const removeBtn = tag.createEl('span', { cls: 'mailer-image-remove', text: '✕' });
-    removeBtn.addEventListener('click', () => {
+    removeBtn.addEventListener('click', async () => {
       const img = this.images[index - 1];
       if (img) {
-        this.plugin.db.deleteImage(img.path);
-        this.images[index - 1] = null as any;
+        await this.plugin.db.deleteImage(img.path);
+        this.images[index - 1] = null;
       }
       tag.remove();
     });
@@ -289,7 +286,7 @@ class EditEmailModal extends ResizableModal {
 
     const headerContainer = contentEl.createDiv({ cls: 'mailer-modal-header' });
     
-    const titleEl = headerContainer.createEl('h2', { text: '✏️ Редактирование письма' });
+    headerContainer.createEl('h2', { text: '✏️ Редактирование письма' });
     
     this.addFullscreenButton(headerContainer);
     
@@ -351,7 +348,7 @@ class EditEmailModal extends ResizableModal {
     let nextImgIndex = 1;
     for (const imgPath of existingImages) {
       this.images.push({ path: imgPath, fileName: imgPath.split('/').pop() || imgPath });
-      const tag = this.renderExistingImageTag(imagesList, imgPath, nextImgIndex);
+      this.renderExistingImageTag(imagesList, imgPath, nextImgIndex);
       this.images[nextImgIndex - 1] = { path: imgPath, fileName: imgPath.split('/').pop() || imgPath };
       nextImgIndex++;
     }
@@ -422,7 +419,7 @@ class EditEmailModal extends ResizableModal {
 
     this.setupResizeHandle(contentEl);
 
-    setTimeout(() => subjectInput.focus(), 100);
+    window.setTimeout(() => subjectInput.focus(), 100);
   }
 
   renderExistingImageTag(container: HTMLElement, imgPath: string, index: number): HTMLSpanElement {
@@ -437,11 +434,11 @@ class EditEmailModal extends ResizableModal {
     tag.textContent = `🖼️ {IMG_${index}} ${fileName.substring(0, 20)}`;
 
     const removeBtn = tag.createEl('span', { cls: 'mailer-image-remove', text: '✕' });
-    removeBtn.addEventListener('click', () => {
+    removeBtn.addEventListener('click', async () => {
       const img = this.images[index - 1];
       if (img) {
-        this.plugin.db.deleteImage(img.path);
-        this.images[index - 1] = null as any;
+        await this.plugin.db.deleteImage(img.path);
+        this.images[index - 1] = null;
       }
       tag.remove();
     });
@@ -500,7 +497,7 @@ class DirectionsManagerModal extends Modal {
         new Notice('⚠️ Введите название направления');
         return;
       }
-      const id = this.plugin.db.saveDirection(name);
+      const id = await this.plugin.db.saveDirection(name);
       if (id > 0) {
         new Notice(`✅ Направление "${name}" создано`);
         newDirInput.value = '';
@@ -513,7 +510,7 @@ class DirectionsManagerModal extends Modal {
     });
 
     this.renderDirectionsList(contentEl);
-    setTimeout(() => newDirInput.focus(), 100);
+    window.setTimeout(() => newDirInput.focus(), 100);
   }
 
   renderDirectionsList(contentEl: HTMLElement) {
@@ -551,7 +548,7 @@ class DirectionsManagerModal extends Modal {
         try {
           const allData: DbData = JSON.parse(this.plugin.db.exportData());
           allData.directions = allData.directions.filter((d: Direction) => d.id !== dir.id);
-          const success = this.plugin.db.importData(JSON.stringify(allData));
+          const success = await this.plugin.db.importData(JSON.stringify(allData));
           
           if (success) {
             new Notice(`🗑️ Направление "${dir.name}" удалено`);
@@ -795,7 +792,7 @@ class ChatLLMModal extends Modal {
           ...email,
           text: email.text ? `${email.text}\n\n---\n${llmContent}` : llmContent
         };
-        const id = this.plugin.db.saveEmail(fullEmail);
+        const id = await this.plugin.db.saveEmail(fullEmail);
         if (id > 0) {
           new Notice('✅ Письмо с ответом LLM сохранено!');
         } else {
@@ -808,7 +805,7 @@ class ChatLLMModal extends Modal {
     );
     modal.open();
     
-    setTimeout(() => {
+    window.setTimeout(() => {
       const subjectInput = modal.contentEl.querySelector('input[type="text"]:nth-of-type(2)') as HTMLInputElement;
       const textArea = modal.contentEl.querySelector('textarea') as HTMLTextAreaElement;
       
@@ -998,7 +995,7 @@ class ImportModal extends Modal {
       for (const fileDir of this.fileDirections) {
         const targetId = this.mapping.get(fileDir.id);
         if (targetId === -1) {
-          const newId = this.plugin.db.saveDirection(fileDir.name, fileDir.description || '');
+          const newId = await this.plugin.db.saveDirection(fileDir.name, fileDir.description || '');
           if (newId > 0) {
             dirNameToId.set(fileDir.name, newId);
             created++;
@@ -1039,7 +1036,7 @@ class ImportModal extends Modal {
           direction_id: targetDirId,
         };
 
-        const id = this.plugin.db.saveEmail(newEmail);
+        const id = await this.plugin.db.saveEmail(newEmail);
         if (id > 0) {
           imported++;
         } else {
@@ -1205,10 +1202,7 @@ export class EmailsView extends ItemView {
   container: HTMLElement | null = null;
   emailList: HTMLElement | null = null;
   selectedEmail: Email | null = null;
-  lastLLMAnswer: string = '';
-  lastLLMQuestion: string = '';
   searchInput: HTMLInputElement | null = null;
-  searchResultsCount: number = 0;
 
   constructor(leaf: WorkspaceLeaf, plugin: MailerPlugin) {
     super(leaf);
@@ -1264,8 +1258,7 @@ export class EmailsView extends ItemView {
       }
     });
     
-    const resultCounter = searchContainer.createEl('span', { cls: 'mailer-search-count' });
-    resultCounter.textContent = '';
+    searchContainer.createEl('span', { cls: 'mailer-search-count' });
     
     const toolbar = this.container.createEl('div', { cls: 'mailer-view-toolbar' });
     
@@ -1317,7 +1310,7 @@ export class EmailsView extends ItemView {
     const modal = new CreateEmailModal(
       this.plugin,
       async (email) => {
-        const id = this.plugin.db.saveEmail(email);
+        const id = await this.plugin.db.saveEmail(email);
         if (id > 0) {
           new Notice('✅ Письмо сохранено локально!');
           const savedEmail = this.plugin.db.getEmail(id);
@@ -1468,7 +1461,6 @@ ${textContent}
     let emails = this.plugin.db.getAllEmails();
     const directions = this.plugin.db.getDirections();
     
-    // ПОИСК
     const query = this.searchInput?.value?.toLowerCase() || '';
     let filteredEmails = emails;
     
@@ -1496,7 +1488,7 @@ ${textContent}
     }
     
     if (!filteredEmails || filteredEmails.length === 0) {
-      const emptyEl = scrollContainer.createEl('p', { cls: 'mailer-empty-text', text: query ? '📭 Ничего не найдено' : '📭 Нет писем в локальном хранилище' });
+      scrollContainer.createEl('p', { cls: 'mailer-empty-text', text: query ? '📭 Ничего не найдено' : '📭 Нет писем в локальном хранилище' });
       return;
     }
     
@@ -1536,53 +1528,58 @@ ${textContent}
       const arrowSpan = groupHeader.createEl('span', { cls: 'mailer-group-arrow' });
       arrowSpan.textContent = '▶';
       
-      const emailsContainer = groupContainer.createEl('div', { cls: 'mailer-group-emails' });
+      const emailsContainer = groupContainer.createEl('div', { cls: 'mailer-group-emails collapsed' });
       
       let isExpanded = false;
-      const maxHeight = dirEmails.length * 100 + 20;
-      
-      (emailsContainer as HTMLElement).style.maxHeight = '0px';
-      (emailsContainer as HTMLElement).style.opacity = '0';
       
       dirEmails.forEach((email: Email) => {
         const card = emailsContainer.createEl('div', { cls: 'mailer-email-card', attr: { 'data-id': String(email.id) } });
         
         const statusIcon = email.sync_status === 'synced' ? '☁️' : '📝';
-        const subjectEl = card.createEl('div', { cls: 'mailer-email-subject', text: `${statusIcon} ${email.subject || 'Без темы'}` });
+        card.createEl('div', { cls: 'mailer-email-subject', text: `${statusIcon} ${email.subject || 'Без темы'}` });
         
         card.createEl('div', { cls: 'mailer-email-meta', text: `№ ${email.number || '-'} | ${email.author || 'Неизвестный'} | ${email.date || ''}` });
         card.createEl('div', { cls: 'mailer-email-preview', text: (email.text || '').substring(0, 120) + '...' });
         
-        // КНОПКА РЕДАКТИРОВАНИЯ
         const actionsRow = card.createEl('div', { cls: 'mailer-email-actions' });
         
         const editBtn = actionsRow.createEl('button', { cls: 'mailer-btn-edit' });
         editBtn.textContent = '✏️ Редактировать';
+        
+        const emailId = email.id;
         editBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          this.openEditModal(email);
+          const freshEmail = this.plugin.db.getEmail(emailId);
+          if (freshEmail) {
+            this.openEditModal(freshEmail);
+          } else {
+            new Notice('❌ Письмо не найдено в базе');
+          }
         });
         
         card.addEventListener('click', () => {
-          this.selectEmail(email);
-          this.openEmailAsMd(email);
+          const freshEmail = this.plugin.db.getEmail(emailId);
+          if (freshEmail) {
+            this.selectEmail(freshEmail);
+            this.openEmailAsMd(freshEmail);
+          } else {
+            new Notice('❌ Письмо не найдено');
+          }
         });
       });
       
-      const toggleGroup = () => {
+      groupHeader.addEventListener('click', () => {
         isExpanded = !isExpanded;
         if (isExpanded) {
-          (emailsContainer as HTMLElement).style.maxHeight = maxHeight + 'px';
-          (emailsContainer as HTMLElement).style.opacity = '1';
+          emailsContainer.removeClass('collapsed');
+          emailsContainer.addClass('expanded');
           arrowSpan.textContent = '▼';
         } else {
-          (emailsContainer as HTMLElement).style.maxHeight = '0px';
-          (emailsContainer as HTMLElement).style.opacity = '0';
+          emailsContainer.removeClass('expanded');
+          emailsContainer.addClass('collapsed');
           arrowSpan.textContent = '▶';
         }
-      };
-      
-      groupHeader.addEventListener('click', toggleGroup);
+      });
     }
   }
 
@@ -1591,7 +1588,7 @@ ${textContent}
       this.plugin,
       email,
       async (updatedEmail) => {
-        const success = this.plugin.db.saveEmail(updatedEmail);
+        const success = await this.plugin.db.saveEmail(updatedEmail);
         if (success > 0) {
           new Notice('✅ Письмо обновлено!');
           const savedEmail = this.plugin.db.getEmail(success);
@@ -1638,7 +1635,7 @@ ${textContent}
       email.mdFilePath = filePath;
       email.mdFileHash = await this.getFileHash(filePath);
       email.lastSyncTime = new Date().toISOString();
-      this.plugin.db.saveEmail(email);
+      await this.plugin.db.saveEmail(email);
       
       new Notice(`📄 Открыто: ${fileName}`);
       

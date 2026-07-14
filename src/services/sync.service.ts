@@ -1,5 +1,5 @@
 // src/services/sync.service.ts
-import { Notice } from 'obsidian';
+import { Notice, requestUrl } from 'obsidian';
 import { LocalDatabase, Email } from '../database/db';
 import MailerPlugin from '../main';
 
@@ -41,7 +41,8 @@ export class SyncService {
       if (pending.length > 0) {
         console.log(`📤 Отправка ${pending.length} писем в облако...`);
         
-        const pushResponse = await fetch(`${this.settings.apiUrl}/api/sync/push`, {
+        const pushResponse = await requestUrl({
+          url: `${this.settings.apiUrl}/api/sync/push`,
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -58,17 +59,14 @@ export class SyncService {
           })
         });
         
-        if (pushResponse.ok) {
-          const _result: unknown = await pushResponse.json();
-          
+        if (pushResponse.status >= 200 && pushResponse.status < 300) {
           for (const email of pending) {
-            this.db.markAsSynced(email.id);
+            await this.db.markAsSynced(email.id);
           }
           
           new Notice(`✅ Отправлено ${pending.length} писем в облако`);
         } else {
-          const error = await pushResponse.text();
-          throw new Error(`HTTP ${pushResponse.status}: ${error}`);
+          throw new Error(`HTTP ${pushResponse.status}: ${pushResponse.text}`);
         }
       } else {
         console.log('📭 Нет локальных изменений для отправки');
@@ -77,25 +75,26 @@ export class SyncService {
       // ===== 2. PULL: Получаем новые письма из облака =====
       console.log('📥 Получение писем из облака...');
       
-      const pullResponse = await fetch(`${this.settings.apiUrl}/api/sync/pull`, {
+      const pullResponse = await requestUrl({
+        url: `${this.settings.apiUrl}/api/sync/pull`,
+        method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
       
-      if (pullResponse.ok) {
-        const data: { emails?: Email[] } = await pullResponse.json() as { emails?: Email[] };
+      if (pullResponse.status >= 200 && pullResponse.status < 300) {
+        const data: { emails?: Email[] } = JSON.parse(pullResponse.text) as { emails?: Email[] };
         const cloudEmails: Email[] = data.emails || [];
         
         if (cloudEmails.length > 0) {
-          const added = this.db.addCloudEmails(cloudEmails);
+          const added = await this.db.addCloudEmails(cloudEmails);
           new Notice(`✅ Получено ${added} новых писем из облака`);
         } else {
           console.log('📭 Нет новых писем в облаке');
         }
       } else {
-        const error = await pullResponse.text();
-        throw new Error(`HTTP ${pullResponse.status}: ${error}`);
+        throw new Error(`HTTP ${pullResponse.status}: ${pullResponse.text}`);
       }
       
       new Notice('✅ Синхронизация завершена!');

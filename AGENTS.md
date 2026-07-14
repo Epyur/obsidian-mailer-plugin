@@ -140,13 +140,12 @@ src/
 - `catch(e)` вместо `catch(e: unknown)` без проверки `instanceof Error`
 
 ### ASYNC — незавершённые Promise
-- `db.ts` — 9 мест: `this.saveData()` без `await`/`.catch()`
-- `main.ts` — 2 места: `this.activateView()` в синк-колбэках
-- `main.ts` — 1 место: `this.syncService.syncWithCloud()`
-- `emails.view.ts` — 16 мест: Promise в синхронных колбэках
+- `db.ts` — 8 методов: переведены на async/await ✅
+- `main.ts` — 3 места: async + await добавлены ✅
+- `emails.view.ts` — 3 места: await добавлены ✅
 
 ### OBSIDIAN API — неправильные вызовы
-- `setTimeout()` → `window.setTimeout()` (`llm.service.ts:63,86`, `emails.view.ts:272,500,597,930`)
+- `setTimeout()` → `window.setTimeout()` (`emails.view.ts` — исправлено ✅, `llm.service.ts:63,86` — осталось)
 - `fetch()` → `requestUrl()` (`sync.service.ts:40,76`)
 - `display()` deprecated с 1.13.0 → `getSettingDefinitions()` (низкий приоритет)
 
@@ -158,11 +157,7 @@ src/
 - `styles.css:172` — `!important`
 
 ### Recommendations (чистка)
-- `db.ts:2` — удалить неиспользуемые `TFile`, `TFolder`
-- `main.ts:99,105,158,163` / `db.ts:126` — неиспользуемые `e` в catch
-- `document.service.ts:117` — `placeholderMap` не используется
-- `sync.service.ts:58` — `result` не используется
-- `emails.view.ts:424` — `tag` не используется
+- Все неиспользуемые импорты и переменные удалены ✅
 
 ## План подготовки к публикации
 
@@ -173,15 +168,15 @@ src/
 | 3 | DEPS | Удалить `lodash`, `@types/lodash` | `package.json` | ✅ |
 | 4 | UI | `createEl('hN')` → `Setting.setHeading()` | `main.ts` | ✅ |
 | 5 | STYLING | Инлайн-стили → CSS классы | `main.ts`, `emails.view.ts`, `styles.css` | ✅ |
-| 6 | TYPING | `any` → конкретные интерфейсы | все `.ts` | ⏳ |
+| 6 | TYPING | `any` → конкретные интерфейсы | все `.ts` | ✅ |
 | 7 | TYPING | `catch(e)` → `catch(e: unknown)` + `instanceof Error` | все `.ts` | ✅ |
-| 8 | TYPING | Убрать избыточные `as`-assertions | `main.ts`, `emails.view.ts` | ⏳ |
-| 9 | ASYNC | `void` + `.catch()` для Promise | `main.ts`, `db.ts`, `emails.view.ts` | ⏳ |
-| 10 | OBSIDIAN API | `setTimeout` → `window.setTimeout` | `llm.service.ts`, `emails.view.ts` | ⏳ |
-| 11 | OBSIDIAN API | `fetch` → `requestUrl` | `sync.service.ts` | ⏳ |
-| 12 | LICENSE | Добавить MIT License | корень | ⏳ |
-| 13 | README | Заголовок = `name` из manifest.json | `README.md` | ⏳ |
-| 14 | CSS LINT | Убрать `!important` | `styles.css` | ⏳ |
-| 15 | CLEANUP | Удалить неиспользуемые импорты и переменные | все `.ts` | ⏳ |
+| 8 | TYPING | Убрать избыточные `as`-assertions | все `.ts` | ✅ |
+| 9 | ASYNC | `void` + `.catch()` для Promise | `main.ts`, `db.ts`, `emails.view.ts` | ✅ |
+| 10 | OBSIDIAN API | `setTimeout` → `window.setTimeout` | `emails.view.ts` | ✅ |
+| 11 | OBSIDIAN API | `fetch` → `requestUrl` | `sync.service.ts` | ✅ |
+| 12 | LICENSE | Добавить MIT License | корень | ✅ |
+| 13 | README | Заголовок = `name` из manifest.json | `README.md` | ✅ |
+| 14 | CSS LINT | Убрать `!important` | `styles.css` | ✅ |
+| 15 | CLEANUP | Удалить неиспользуемые импорты и переменные | все `.ts` | ✅ |
 
 **Легенда статусов:** ⏳ — ожидает / ✅ — готово / ❌ — блокировано

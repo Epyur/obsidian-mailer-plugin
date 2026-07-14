@@ -160,7 +160,7 @@ export class LocalDatabase {
         const adapter = this.app.vault.adapter;
         await adapter.write('mailer_data_backup.json', JSON.stringify(this.data, null, 2));
         console.log('✅ Бэкап создан');
-      } catch (e: unknown) {
+      } catch {
         console.warn('⚠️ Не удалось создать бэкап');
       }
     }
@@ -186,7 +186,7 @@ export class LocalDatabase {
     return emails.find((e: Email) => e.id === id) || null;
   }
 
-  saveEmail(email: Partial<Email>): number {
+  async saveEmail(email: Partial<Email>): Promise<number> {
     if (!this.isReady()) {
       console.warn('⚠️ База данных не инициализирована');
       return -1;
@@ -231,7 +231,7 @@ export class LocalDatabase {
         this.data.emails.unshift(newEmail);
       }
       
-      this.saveData();
+      await this.saveData();
       console.log('✅ Письмо сохранено, ID:', newEmail.id);
       return newEmail.id;
     } catch (error: unknown) {
@@ -240,13 +240,13 @@ export class LocalDatabase {
     }
   }
 
-  deleteEmail(id: number): boolean {
+  async deleteEmail(id: number): Promise<boolean> {
     if (!this.isReady()) return false;
     
     try {
       const emails = this.data.emails || [];
       this.data.emails = emails.filter((e: Email) => e.id !== id);
-      this.saveData();
+      await this.saveData();
       return true;
     } catch (error: unknown) {
       console.error('❌ Ошибка удаления письма:', error instanceof Error ? error.message : String(error));
@@ -276,18 +276,18 @@ export class LocalDatabase {
     );
   }
 
-  markAsSynced(emailId: number): void {
+  async markAsSynced(emailId: number): Promise<void> {
     if (!this.isReady()) return;
     
     const emails = this.data.emails || [];
     const email = emails.find((e: Email) => e.id === emailId);
     if (email) {
       email.sync_status = 'synced';
-      this.saveData();
+      await this.saveData();
     }
   }
 
-  markAllAsSynced(): void {
+  async markAllAsSynced(): Promise<void> {
     if (!this.isReady()) return;
     
     const emails = this.data.emails || [];
@@ -296,10 +296,10 @@ export class LocalDatabase {
         email.sync_status = 'synced';
       }
     }
-    this.saveData();
+    await this.saveData();
   }
 
-  addCloudEmails(cloudEmails: Email[]): number {
+  async addCloudEmails(cloudEmails: Email[]): Promise<number> {
     if (!this.isReady()) return 0;
     
     if (!this.data.emails) {
@@ -313,7 +313,7 @@ export class LocalDatabase {
       if (!existingIds.has(cloudEmail.id)) {
         const newEmail: Email = {
           ...cloudEmail,
-          sync_status: 'synced' as SyncStatus
+          sync_status: 'synced'
         };
         this.data.emails.unshift(newEmail);
         added++;
@@ -321,7 +321,7 @@ export class LocalDatabase {
     }
     
     if (added > 0) {
-      this.saveData();
+      await this.saveData();
     }
     
     return added;
@@ -343,7 +343,7 @@ export class LocalDatabase {
     return this.data.directions || [];
   }
 
-  saveDirection(name: string, description: string = ''): number {
+  async saveDirection(name: string, description: string = ''): Promise<number> {
     if (!this.isReady()) {
       console.warn('⚠️ База данных не инициализирована');
       return -1;
@@ -370,7 +370,7 @@ export class LocalDatabase {
       };
       
       this.data.directions.push(newDir);
-      this.saveData();
+      await this.saveData();
       console.log('✅ Создано направление:', name, 'ID:', newDir.id);
       return newDir.id;
     } catch (error: unknown) {
@@ -380,7 +380,7 @@ export class LocalDatabase {
   }
 
   // ===== 🔥 НОВЫЙ МЕТОД: УДАЛЕНИЕ НАПРАВЛЕНИЯ =====
-  deleteDirection(id: number): boolean {
+  async deleteDirection(id: number): Promise<boolean> {
     if (!this.isReady()) {
       console.warn('⚠️ База данных не инициализирована');
       return false;
@@ -396,7 +396,7 @@ export class LocalDatabase {
       }
       
       this.data.directions = filtered;
-      this.saveData();
+      await this.saveData();
       console.log('✅ Направление удалено, ID:', id);
       return true;
     } catch (error: unknown) {
@@ -424,7 +424,7 @@ export class LocalDatabase {
     return JSON.stringify(this.data, null, 2);
   }
 
-  importData(jsonData: string): boolean {
+  async importData(jsonData: string): Promise<boolean> {
     try {
       const data = JSON.parse(jsonData) as DbData;
       this.data = {
@@ -433,7 +433,7 @@ export class LocalDatabase {
         chat_history: data.chat_history || [],
         documents: data.documents || []
       };
-      this.saveData();
+      await this.saveData();
       return true;
     } catch (error: unknown) {
       console.error('❌ Ошибка импорта:', error instanceof Error ? error.message : String(error));
